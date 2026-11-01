@@ -26,6 +26,7 @@ public:
 
 signals:
     void openRequested(const QString& url);
+    void openAppRequested(const QString& command);
     void editRequested(int id);
     void deleteRequested(int id);
     void selectionToggled(int id, bool selected);

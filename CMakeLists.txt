@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # 导航之家（NavHome）网页管家
 # 本地单机 Windows 桌面应用，技术栈 C++17 + Qt6 Widgets + SQLite
 project(NavHome
-    VERSION 2.0.0
+    VERSION 2.1.0
     DESCRIPTION "导航之家（NavHome）网页管家"
     LANGUAGES CXX)
 
@@ -64,8 +64,8 @@ if(WIN32)
         COPYONLY
     )
     target_sources(NavHome PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.rc")
-    # 标题栏深色模式（DwmSetWindowAttribute）
-    target_link_libraries(NavHome PRIVATE dwmapi)
+    # 标题栏深色模式（DwmSetWindowAttribute）+ 快捷方式解析（IShellLink COM）
+    target_link_libraries(NavHome PRIVATE dwmapi ole32 uuid)
 endif()
 
 # —— 数据层测试（可选，-DNAVHOME_BUILD_TESTS=ON 时构建）——

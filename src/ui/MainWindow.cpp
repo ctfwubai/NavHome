@@ -20,6 +20,12 @@
 #include <QAction>
 #include <QMouseEvent>
 #include <QWindow>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QDir>
+#include <QUrl>
+#include <QIcon>
+#include <QPixmap>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -28,6 +34,8 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <shobjidl.h>
+#include <objbase.h>
 #endif
 
 #include "app/AppConfig.h"
@@ -36,9 +44,30 @@
 #include "models/BookmarkRepository.h"
 #include "ui/FlowLayout.h"
 #include "ui/BookmarkCardWidget.h"
+#include "ui/FolderCardWidget.h"
 #include "ui/AddBookmarkDialog.h"
+#include "ui/AddAppDialog.h"
 #include "ui/BrowserSetupDialog.h"
 #include "ui/SettingsDialog.h"
+
+namespace {
+// 拖拽数据是否包含可生成应用卡片的文件（.exe / .lnk）
+bool hasAppFile(const QMimeData* mime) {
+    if (!mime || !mime->hasUrls()) {
+        return false;
+    }
+    for (const QUrl& url : mime->urls()) {
+        if (!url.isLocalFile()) {
+            continue;
+        }
+        const QString p = url.toLocalFile();
+        if (p.endsWith(".exe", Qt::CaseInsensitive) || p.endsWith(".lnk", Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_iconFetcher = new IconFetcher(this);
@@ -226,6 +255,8 @@ void MainWindow::buildUi() {
     m_emptyHint->setAlignment(Qt::AlignCenter);
     m_emptyHint->setStyleSheet("color: #9aa3b2; font-size: 14px;");
     m_emptyHint->setContextMenuPolicy(Qt::CustomContextMenu);  // 空态右键也能添加
+    m_emptyHint->setAcceptDrops(true);       // 空态也支持拖入 .exe/.lnk 生成应用卡片
+    m_emptyHint->installEventFilter(this);
     m_emptyHint->hide();
     rightLayout->addWidget(m_emptyHint, 1);
 
@@ -425,6 +456,8 @@ QString MainWindow::themeStylesheet(bool dark, const QString& leftPanelBg) {
             QPushButton#iconBtn { padding: 0; border-radius: 7px; font-size: 14px; }
             QFrame#bookmarkCard { background: #22262c; border: 1px solid #2d323a; border-radius: 14px; }
             QFrame#bookmarkCard:hover { border-color: #4a5d8f; background: #262b32; }
+            QFrame#folderCard { background: rgba(255,255,255,0.06); border: 1px dashed #4a5d8f; border-radius: 14px; }
+            QFrame#folderCard:hover { border-color: #6b8bff; background: rgba(255,255,255,0.10); }
             QWidget#batchBar { background: #3a2f26; border: 1px solid #5a4030; border-radius: 10px; }
             QLabel#cardName { font-weight: 600; font-size: 14px; color: #e6eaf0; }
             QLabel#cardUrl { font-size: 11px; color: #8a94a6; }
@@ -480,6 +513,8 @@ QString MainWindow::themeStylesheet(bool dark, const QString& leftPanelBg) {
         QPushButton#iconBtn { padding: 0; border-radius: 7px; font-size: 14px; }
         QFrame#bookmarkCard { background: #ffffff; border: 1px solid #e7eaf0; border-radius: 14px; }
         QFrame#bookmarkCard:hover { border-color: #b9c8f2; background: #fdfdff; }
+        QFrame#folderCard { background: rgba(255,255,255,0.35); border: 1px dashed #b9c8f2; border-radius: 14px; }
+        QFrame#folderCard:hover { border-color: #4a6cf7; background: rgba(255,255,255,0.55); }
         QWidget#batchBar { background: #fff3ec; border: 1px solid #ffd8c0; border-radius: 10px; }
         QLabel#cardName { font-weight: 600; font-size: 14px; color: #2b3040; }
         QLabel#cardUrl { font-size: 11px; color: #98a1b3; }
@@ -528,21 +563,41 @@ void MainWindow::refreshBookmarks() {
     m_gridLayout->removeAllWidgets();
 
     const QString keyword = m_searchEdit->text().trimmed();
+    QList<Bookmark> all;
     if (!keyword.isEmpty()) {
-        m_bookmarks = BookmarkRepository::instance().search(keyword);
+        all = BookmarkRepository::instance().search(keyword);
     } else {
-        m_bookmarks = BookmarkRepository::instance().bookmarks(currentGroupId());
+        all = BookmarkRepository::instance().bookmarks(currentGroupId());
+    }
+
+    // 主网格只展示：文件夹 + 未被收纳进文件夹的收藏/应用；
+    // 已收纳成员由文件夹卡片内部展示，不进 m_bookmarks，保证排序索引一致
+    const QSet<int> members = BookmarkRepository::instance().folderMemberIds();
+    m_bookmarks.clear();
+    for (const Bookmark& b : all) {
+        if (b.type == "folder" || !members.contains(b.id)) {
+            m_bookmarks.append(b);
+        }
     }
 
     for (const Bookmark& b : m_bookmarks) {
-        auto* card = new BookmarkCardWidget(b);
-        connect(card, &BookmarkCardWidget::openRequested, this, &MainWindow::onOpenUrl);
-        connect(card, &BookmarkCardWidget::editRequested, this, &MainWindow::onEditBookmark);
-        connect(card, &BookmarkCardWidget::deleteRequested, this, &MainWindow::onDeleteBookmark);
-        connect(card, &BookmarkCardWidget::selectionToggled, this, &MainWindow::onSelectionToggled);
-        card->setSelectionMode(m_selectionMode);
-        card->setSelected(m_selectedIds.contains(b.id));
-        m_gridLayout->addWidget(card);
+        if (b.type == "folder") {
+            auto* card = new FolderCardWidget(b, BookmarkRepository::instance().folderItems(b.id));
+            connect(card, &FolderCardWidget::openRequested, this, &MainWindow::onOpenUrl);
+            connect(card, &FolderCardWidget::openAppRequested, this, &MainWindow::onOpenApp);
+            connect(card, &FolderCardWidget::deleteRequested, this, &MainWindow::onDeleteFolder);
+            m_gridLayout->addWidget(card);
+        } else {
+            auto* card = new BookmarkCardWidget(b);
+            connect(card, &BookmarkCardWidget::openRequested, this, &MainWindow::onOpenUrl);
+            connect(card, &BookmarkCardWidget::openAppRequested, this, &MainWindow::onOpenApp);
+            connect(card, &BookmarkCardWidget::editRequested, this, &MainWindow::onEditBookmark);
+            connect(card, &BookmarkCardWidget::deleteRequested, this, &MainWindow::onDeleteBookmark);
+            connect(card, &BookmarkCardWidget::selectionToggled, this, &MainWindow::onSelectionToggled);
+            card->setSelectionMode(m_selectionMode);
+            card->setSelected(m_selectedIds.contains(b.id));
+            m_gridLayout->addWidget(card);
+        }
     }
 
     updateEmptyHint();
@@ -666,22 +721,50 @@ void MainWindow::onAddBookmark() {
     refreshBookmarks();
 }
 
+void MainWindow::onAddApp() {
+    AddAppDialog dlg(m_groups, currentGroupId(), this);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    Bookmark b = dlg.result();
+    const int id = BookmarkRepository::instance().addBookmark(b);
+    if (id > 0) {
+        saveAppIcon(id, BrowserLauncher::exePathFromCommand(b.url));
+    }
+    refreshBookmarks();
+}
+
 void MainWindow::onEditBookmark(int id) {
     Bookmark* b = findBookmark(id);
     if (!b) {
         return;
     }
     const QString oldUrl = b->url;
-    AddBookmarkDialog dlg(m_groups, b->groupId, this);
-    dlg.setBookmark(*b);
-    if (dlg.exec() != QDialog::Accepted) {
-        return;
-    }
-    Bookmark updated = dlg.result();
-    updated.id = id;
-    BookmarkRepository::instance().updateBookmark(updated);
-    if (updated.url != oldUrl) {
-        m_iconFetcher->fetchForBookmark(id, updated.url);
+
+    if (b->type == "app") {
+        AddAppDialog dlg(m_groups, b->groupId, this);
+        dlg.setBookmark(*b);
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+        Bookmark updated = dlg.result();
+        updated.id = id;
+        BookmarkRepository::instance().updateBookmark(updated);
+        if (updated.url != oldUrl) {
+            saveAppIcon(id, BrowserLauncher::exePathFromCommand(updated.url));
+        }
+    } else {
+        AddBookmarkDialog dlg(m_groups, b->groupId, this);
+        dlg.setBookmark(*b);
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+        Bookmark updated = dlg.result();
+        updated.id = id;
+        BookmarkRepository::instance().updateBookmark(updated);
+        if (updated.url != oldUrl) {
+            m_iconFetcher->fetchForBookmark(id, updated.url);
+        }
     }
     refreshBookmarks();
 }
@@ -693,6 +776,40 @@ void MainWindow::onDeleteBookmark(int id) {
         return;
     }
     BookmarkRepository::instance().deleteBookmark(id);
+    refreshBookmarks();
+}
+
+void MainWindow::onDeleteFolder(int folderId) {
+    const auto ret = QMessageBox::question(this, "解散文件夹",
+                                           "确定解散该文件夹吗？其中的收藏将回到当前分组。",
+                                           QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ret != QMessageBox::Yes) {
+        return;
+    }
+    BookmarkRepository::instance().deleteFolder(folderId);
+    refreshBookmarks();
+}
+
+void MainWindow::createFolder(int aId, int bId) {
+    // 仅单分组视图支持创建文件夹（“全部”视图跨分组，语义不清）
+    if (currentGroupId() < 0) {
+        return;
+    }
+    auto& repo = BookmarkRepository::instance();
+    const int fid = repo.addFolder(currentGroupId());
+    if (fid < 0) {
+        return;
+    }
+    repo.addItemToFolder(fid, aId);
+    repo.addItemToFolder(fid, bId);
+    refreshBookmarks();
+}
+
+void MainWindow::addToFolder(int folderId, int bookmarkId) {
+    if (currentGroupId() < 0) {
+        return;
+    }
+    BookmarkRepository::instance().addItemToFolder(folderId, bookmarkId);
     refreshBookmarks();
 }
 
@@ -708,6 +825,12 @@ void MainWindow::onOpenUrl(const QString& url) {
     const QString browser = AppConfig::instance().defaultBrowser();
     if (!BrowserLauncher::openUrl(url, browser)) {
         QMessageBox::warning(this, "提示", "无法打开网址，请检查浏览器设置。");
+    }
+}
+
+void MainWindow::onOpenApp(const QString& command) {
+    if (!BrowserLauncher::openApp(command)) {
+        QMessageBox::warning(this, "提示", "无法启动应用，请检查路径是否正确。");
     }
 }
 
@@ -738,32 +861,97 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
     } else if (obj == m_gridContainer) {
         if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             auto* e = static_cast<QDragMoveEvent*>(event);
-            if (e->mimeData()->hasFormat(kBookmarkMime)) {
+            if (e->mimeData()->hasFormat(kBookmarkMime) ||
+                e->mimeData()->hasFormat(kFolderMime) ||
+                hasAppFile(e->mimeData())) {
                 e->acceptProposedAction();
                 return true;
             }
         } else if (event->type() == QEvent::Drop) {
             auto* e = static_cast<QDropEvent*>(event);
-            const int id = e->mimeData()->data(kBookmarkMime).toInt();
-            const QPoint pos = e->position().toPoint();
-            // 计算插入位置：落在某卡片上方或同行左半，则插到该卡片之前
-            int targetIndex = m_bookmarks.size();
-            for (int i = 0; i < m_gridLayout->count(); ++i) {
-                QWidget* w = m_gridLayout->itemAt(i)->widget();
-                if (!w) {
-                    continue;
+            if (e->mimeData()->hasFormat(kBookmarkMime)) {
+                const int id = e->mimeData()->data(kBookmarkMime).toInt();
+                const QPoint pos = e->position().toPoint();
+                // 落在某卡片/文件夹上 → 创建或加入文件夹（拖到卡片上方松手）
+                QWidget* target = nullptr;
+                for (int i = 0; i < m_gridLayout->count(); ++i) {
+                    QWidget* w = m_gridLayout->itemAt(i)->widget();
+                    if (w && w->geometry().contains(pos)) {
+                        target = w;
+                        break;
+                    }
                 }
-                const QRect r = w->geometry();
-                const bool before = (pos.y() < r.top())
-                    || (pos.y() < r.bottom() && pos.x() < r.center().x());
-                if (before) {
-                    targetIndex = i;
-                    break;
+                if (target) {
+                    if (auto* folder = qobject_cast<FolderCardWidget*>(target)) {
+                        addToFolder(folder->folderId(), id);
+                    } else if (auto* card = qobject_cast<BookmarkCardWidget*>(target)) {
+                        if (card->bookmarkId() != id) {
+                            createFolder(id, card->bookmarkId());
+                        }
+                    }
+                    e->acceptProposedAction();
+                    return true;
                 }
+                // 否则按排序处理：落在卡片之间（拖到前面 = 排序）
+                int targetIndex = m_bookmarks.size();
+                for (int i = 0; i < m_gridLayout->count(); ++i) {
+                    QWidget* w = m_gridLayout->itemAt(i)->widget();
+                    if (!w) {
+                        continue;
+                    }
+                    const QRect r = w->geometry();
+                    const bool before = (pos.y() < r.top())
+                        || (pos.y() < r.bottom() && pos.x() < r.center().x());
+                    if (before) {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+                reorderBookmark(id, targetIndex);
+                e->acceptProposedAction();
+                return true;
             }
-            reorderBookmark(id, targetIndex);
-            e->acceptProposedAction();
-            return true;
+            if (e->mimeData()->hasFormat(kFolderMime)) {
+                const int id = e->mimeData()->data(kFolderMime).toInt();
+                const QPoint pos = e->position().toPoint();
+                int targetIndex = m_bookmarks.size();
+                for (int i = 0; i < m_gridLayout->count(); ++i) {
+                    QWidget* w = m_gridLayout->itemAt(i)->widget();
+                    if (!w) {
+                        continue;
+                    }
+                    const QRect r = w->geometry();
+                    const bool before = (pos.y() < r.top())
+                        || (pos.y() < r.bottom() && pos.x() < r.center().x());
+                    if (before) {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+                reorderBookmark(id, targetIndex);
+                e->acceptProposedAction();
+                return true;
+            }
+            if (hasAppFile(e->mimeData())) {
+                handleAppFileDrop(e->mimeData());
+                e->acceptProposedAction();
+                return true;
+            }
+        }
+    } else if (obj == m_emptyHint) {
+        if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+            auto* e = static_cast<QDragMoveEvent*>(event);
+            if (hasAppFile(e->mimeData())) {
+                e->acceptProposedAction();
+                return true;
+            }
+        } else if (event->type() == QEvent::Drop) {
+            auto* e = static_cast<QDropEvent*>(event);
+            if (hasAppFile(e->mimeData())) {
+                handleAppFileDrop(e->mimeData());
+                e->acceptProposedAction();
+                return true;
+            }
         }
     } else if (obj == m_titleBar) {
         if (event->type() == QEvent::MouseButtonPress) {
@@ -866,7 +1054,9 @@ void MainWindow::onGridContextMenu(const QPoint& pos) {
     auto* w = qobject_cast<QWidget*>(sender());
     QMenu menu(this);
     QAction* addAction = menu.addAction("＋ 添加收藏");
+    QAction* addAppAction = menu.addAction("＋ 添加应用");
     connect(addAction, &QAction::triggered, this, &MainWindow::onAddBookmark);
+    connect(addAppAction, &QAction::triggered, this, &MainWindow::onAddApp);
     menu.exec((w ? w : m_gridContainer)->mapToGlobal(pos));
 }
 
@@ -896,6 +1086,98 @@ void MainWindow::reorderBookmark(int id, int targetIndex) {
         repo.updateBookmarkOrder(m_bookmarks[i].id, i + 1);
     }
     refreshBookmarks();
+}
+
+void MainWindow::addAppFromCommand(const QString& command, const QString& name) {
+    if (command.trimmed().isEmpty()) {
+        return;
+    }
+    Bookmark b;
+    b.groupId = currentGroupId() < 0 ? 0 : currentGroupId();
+    b.type = "app";
+    b.url = command.trimmed();
+    b.name = name.trimmed();
+    if (b.name.isEmpty()) {
+        b.name = QFileInfo(BrowserLauncher::exePathFromCommand(b.url)).completeBaseName();
+    }
+    const int id = BookmarkRepository::instance().addBookmark(b);
+    if (id > 0) {
+        saveAppIcon(id, BrowserLauncher::exePathFromCommand(b.url));
+    }
+    refreshBookmarks();
+}
+
+void MainWindow::handleAppFileDrop(const QMimeData* mime) {
+    if (!hasAppFile(mime)) {
+        return;
+    }
+    for (const QUrl& url : mime->urls()) {
+        if (!url.isLocalFile()) {
+            continue;
+        }
+        const QString p = url.toLocalFile();
+        if (p.endsWith(".exe", Qt::CaseInsensitive)) {
+            addAppFromCommand(p);
+        } else if (p.endsWith(".lnk", Qt::CaseInsensitive)) {
+            const QString target = resolveShortcutTarget(p);
+            addAppFromCommand(target.isEmpty() ? p : target);
+        }
+    }
+}
+
+void MainWindow::saveAppIcon(int id, const QString& exePath) {
+    if (exePath.isEmpty()) {
+        return;
+    }
+    const QIcon icon = BrowserLauncher::iconForPath(exePath);
+    if (icon.isNull()) {
+        return;
+    }
+    const QPixmap pm = icon.pixmap(48, 48);
+    if (pm.isNull()) {
+        return;
+    }
+    const QString dirPath = QDir(AppConfig::instance().dataDir()).filePath("icons");
+    QDir().mkpath(dirPath);
+    const QString localPath = QDir(dirPath).filePath(QString("app_%1.png").arg(id));
+    if (pm.save(localPath, "PNG")) {
+        BookmarkRepository::instance().updateIcon(id, localPath);
+    }
+}
+
+QString MainWindow::resolveShortcutTarget(const QString& lnkPath) {
+#ifdef Q_OS_WIN
+    const HRESULT init = CoInitialize(nullptr);
+    QString result;
+    IShellLinkW* link = nullptr;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(ShellLink), nullptr, CLSCTX_INPROC_SERVER,
+                                   __uuidof(IShellLinkW), reinterpret_cast<void**>(&link)))) {
+        IPersistFile* file = nullptr;
+        if (SUCCEEDED(link->QueryInterface(__uuidof(IPersistFile),
+                                           reinterpret_cast<void**>(&file)))) {
+            if (SUCCEEDED(file->Load(reinterpret_cast<const wchar_t*>(lnkPath.utf16()), STGM_READ))) {
+                wchar_t target[MAX_PATH] = {};
+                wchar_t args[MAX_PATH * 4] = {};
+                if (SUCCEEDED(link->GetPath(target, MAX_PATH, nullptr, 0))) {
+                    QString cmd = QString::fromWCharArray(target);
+                    if (SUCCEEDED(link->GetArguments(args, MAX_PATH * 4)) && args[0] != L'\0') {
+                        cmd += " " + QString::fromWCharArray(args);
+                    }
+                    result = cmd;
+                }
+            }
+            file->Release();
+        }
+        link->Release();
+    }
+    if (SUCCEEDED(init)) {
+        CoUninitialize();
+    }
+    return result;
+#else
+    Q_UNUSED(lnkPath);
+    return QString();
+#endif
 }
 
 void MainWindow::onOpenSettings() {

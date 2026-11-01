@@ -25,6 +25,7 @@ Bookmark bookmarkFromQuery(const QSqlQuery& q) {
     b.name = q.value("name").toString();
     b.url = q.value("url").toString();
     b.icon = q.value("icon").toString();
+    b.type = q.value("type").toString().isEmpty() ? "url" : q.value("type").toString();
     b.sortOrder = q.value("sort_order").toInt();
     b.createdAt = q.value("created_at").toString();
     b.updatedAt = q.value("updated_at").toString();
@@ -91,6 +92,17 @@ bool BookmarkRepository::deleteGroup(int id, bool moveToUngrouped) {
             return false;
         }
     } else {
+        // 一并删除组内收藏前，先清理其文件夹成员关系，避免残留孤儿记录
+        QSqlQuery fq(m_db);
+        fq.prepare("DELETE FROM folder_items WHERE bookmark_id IN "
+                   "(SELECT id FROM bookmarks WHERE group_id = :id)");
+        fq.bindValue(":id", id);
+        fq.exec();
+        fq.prepare("DELETE FROM folder_items WHERE folder_id IN "
+                   "(SELECT id FROM bookmarks WHERE group_id = :id AND type = 'folder')");
+        fq.bindValue(":id", id);
+        fq.exec();
+
         q.prepare("DELETE FROM bookmarks WHERE group_id = :id");
         q.bindValue(":id", id);
         if (!q.exec()) {
@@ -168,12 +180,13 @@ int BookmarkRepository::addBookmark(const Bookmark& bookmark) {
     }
 
     QSqlQuery q(m_db);
-    q.prepare("INSERT INTO bookmarks (group_id, name, url, icon, sort_order, created_at, updated_at) "
-              "VALUES (:gid, :name, :url, :icon, :sort, :created, :updated)");
+    q.prepare("INSERT INTO bookmarks (group_id, name, url, icon, type, sort_order, created_at, updated_at) "
+              "VALUES (:gid, :name, :url, :icon, :type, :sort, :created, :updated)");
     q.bindValue(":gid", bookmark.groupId);
     q.bindValue(":name", nz(bookmark.name));
     q.bindValue(":url", nz(bookmark.url));
     q.bindValue(":icon", nz(bookmark.icon));
+    q.bindValue(":type", nz(bookmark.type).isEmpty() ? "url" : nz(bookmark.type));
     q.bindValue(":sort", nextOrder);
     q.bindValue(":created", now);
     q.bindValue(":updated", now);
@@ -188,11 +201,12 @@ bool BookmarkRepository::updateBookmark(const Bookmark& bookmark) {
     const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
     QSqlQuery q(m_db);
     q.prepare("UPDATE bookmarks SET group_id = :gid, name = :name, url = :url, icon = :icon, "
-              "updated_at = :updated WHERE id = :id");
+              "type = :type, updated_at = :updated WHERE id = :id");
     q.bindValue(":gid", bookmark.groupId);
     q.bindValue(":name", nz(bookmark.name));
     q.bindValue(":url", nz(bookmark.url));
     q.bindValue(":icon", nz(bookmark.icon));
+    q.bindValue(":type", nz(bookmark.type).isEmpty() ? "url" : nz(bookmark.type));
     q.bindValue(":updated", now);
     q.bindValue(":id", bookmark.id);
     return q.exec();
@@ -200,6 +214,11 @@ bool BookmarkRepository::updateBookmark(const Bookmark& bookmark) {
 
 bool BookmarkRepository::deleteBookmark(int id) {
     QSqlQuery q(m_db);
+    // 清理文件夹成员关系（作为成员或作为文件夹）
+    q.prepare("DELETE FROM folder_items WHERE bookmark_id = :id OR folder_id = :id");
+    q.bindValue(":id", id);
+    q.exec();
+
     q.prepare("DELETE FROM bookmarks WHERE id = :id");
     q.bindValue(":id", id);
     return q.exec();
@@ -213,8 +232,17 @@ bool BookmarkRepository::deleteBookmarks(const QList<int>& ids) {
     for (int i = 0; i < ids.size(); ++i) {
         placeholders << ":id" + QString::number(i);
     }
+    const QString inClause = placeholders.join(", ");
+
     QSqlQuery q(m_db);
-    q.prepare("DELETE FROM bookmarks WHERE id IN (" + placeholders.join(", ") + ")");
+    q.prepare("DELETE FROM folder_items WHERE bookmark_id IN (" + inClause + ") "
+              "OR folder_id IN (" + inClause + ")");
+    for (int i = 0; i < ids.size(); ++i) {
+        q.bindValue(placeholders[i], ids[i]);
+    }
+    q.exec();
+
+    q.prepare("DELETE FROM bookmarks WHERE id IN (" + inClause + ")");
     for (int i = 0; i < ids.size(); ++i) {
         q.bindValue(placeholders[i], ids[i]);
     }
@@ -252,4 +280,94 @@ bool BookmarkRepository::updateIcon(int id, const QString& icon) {
     q.bindValue(":icon", icon);
     q.bindValue(":id", id);
     return q.exec();
+}
+
+// —— 文件夹 ——
+
+int BookmarkRepository::addFolder(int groupId, const QString& name) {
+    Bookmark b;
+    b.groupId = groupId;
+    b.name = name.isEmpty() ? "文件夹" : name;
+    b.type = "folder";
+    b.url = QString();
+    return addBookmark(b);
+}
+
+bool BookmarkRepository::deleteFolder(int folderId) {
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM folder_items WHERE folder_id = :fid");
+    q.bindValue(":fid", folderId);
+    if (!q.exec()) {
+        return false;
+    }
+    return deleteBookmark(folderId);
+}
+
+bool BookmarkRepository::addItemToFolder(int folderId, int bookmarkId) {
+    // 已存在则视为成功（幂等）
+    QSqlQuery dup(m_db);
+    dup.prepare("SELECT id FROM folder_items WHERE folder_id = :fid AND bookmark_id = :bid");
+    dup.bindValue(":fid", folderId);
+    dup.bindValue(":bid", bookmarkId);
+    if (dup.exec() && dup.next()) {
+        return true;
+    }
+
+    int nextOrder = 1;
+    QSqlQuery maxQ(m_db);
+    maxQ.prepare("SELECT IFNULL(MAX(sort_order), 0) + 1 FROM folder_items WHERE folder_id = :fid");
+    maxQ.bindValue(":fid", folderId);
+    if (maxQ.exec() && maxQ.next()) {
+        nextOrder = maxQ.value(0).toInt();
+    }
+
+    QSqlQuery q(m_db);
+    q.prepare("INSERT INTO folder_items (folder_id, bookmark_id, sort_order) "
+              "VALUES (:fid, :bid, :sort)");
+    q.bindValue(":fid", folderId);
+    q.bindValue(":bid", bookmarkId);
+    q.bindValue(":sort", nextOrder);
+    return q.exec();
+}
+
+bool BookmarkRepository::removeItemFromFolder(int folderId, int bookmarkId) {
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM folder_items WHERE folder_id = :fid AND bookmark_id = :bid");
+    q.bindValue(":fid", folderId);
+    q.bindValue(":bid", bookmarkId);
+    return q.exec();
+}
+
+QList<Bookmark> BookmarkRepository::folderItems(int folderId) {
+    QList<Bookmark> result;
+    QSqlQuery q(m_db);
+    q.prepare("SELECT b.* FROM bookmarks b JOIN folder_items fi ON fi.bookmark_id = b.id "
+              "WHERE fi.folder_id = :fid ORDER BY fi.sort_order ASC, fi.id ASC");
+    q.bindValue(":fid", folderId);
+    if (!q.exec()) {
+        qWarning() << "查询文件夹成员失败:" << q.lastError().text();
+        return result;
+    }
+    while (q.next()) {
+        result.append(bookmarkFromQuery(q));
+    }
+    return result;
+}
+
+QSet<int> BookmarkRepository::folderMemberIds() {
+    QSet<int> result;
+    QSqlQuery q(m_db);
+    if (q.exec("SELECT bookmark_id FROM folder_items")) {
+        while (q.next()) {
+            result.insert(q.value(0).toInt());
+        }
+    }
+    return result;
+}
+
+bool BookmarkRepository::isFolderMember(int bookmarkId) {
+    QSqlQuery q(m_db);
+    q.prepare("SELECT id FROM folder_items WHERE bookmark_id = :bid LIMIT 1");
+    q.bindValue(":bid", bookmarkId);
+    return q.exec() && q.next();
 }

@@ -28,6 +28,9 @@ private:
     // 初始化表结构
     bool createTables();
 
+    // 增量迁移：为老库补充新增列
+    void migrate();
+
     QSqlDatabase m_db;
     bool m_ready = false;
 };

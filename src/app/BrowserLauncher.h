@@ -26,6 +26,12 @@ public:
     // 使用指定浏览器打开网址；browserPath 为空时回退到系统默认
     static bool openUrl(const QString& url, const QString& browserPath = QString());
 
+    // 打开应用程序：command 可为纯路径或带参数的命令行（如 "D:\Weixin\Weixin.exe --scene=desktop"）
+    static bool openApp(const QString& command);
+
+    // 从命令行提取可执行文件路径（用于提取 exe 图标）
+    static QString exePathFromCommand(const QString& command);
+
     // 补全网址协议（缺少 scheme 时补 https://）
     static QString ensureScheme(const QString& url);
 

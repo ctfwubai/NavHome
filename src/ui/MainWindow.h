@@ -10,6 +10,7 @@
 
 class QListWidget;
 class QLineEdit;
+class QMimeData;
 class QScrollArea;
 class QLabel;
 class QPushButton;
@@ -36,11 +37,14 @@ private slots:
     void onRenameGroup();
     void onDeleteGroup();
     void onAddBookmark();
+    void onAddApp();
     void onEditBookmark(int id);
     void onDeleteBookmark(int id);
+    void onDeleteFolder(int folderId);
     void onGroupSelected();
     void onFilterChanged(const QString& text);
     void onOpenUrl(const QString& url);
+    void onOpenApp(const QString& command);
     void onOpenSettings();
     void onIconFetched(int id, const QString& path);
     void onToggleSelectionMode();
@@ -69,6 +73,18 @@ private:
     Bookmark* findBookmark(int id);
     void updateEmptyHint();
     void reorderBookmark(int id, int targetIndex);
+    // 由程序路径/命令行创建应用卡片并提取图标（拖入 .exe/.lnk 与手动添加共用）
+    void addAppFromCommand(const QString& command, const QString& name = QString());
+    // 提取 exe 图标并保存为本地 PNG，写回 icon 字段
+    void saveAppIcon(int id, const QString& exePath);
+    // 解析 Windows 快捷方式（.lnk）目标命令行；失败返回空
+    QString resolveShortcutTarget(const QString& lnkPath);
+    // 处理文件拖放：为每个 .exe/.lnk 生成应用卡片
+    void handleAppFileDrop(const QMimeData* mime);
+    // 将两个收藏合并为一个文件夹（仅单分组视图）
+    void createFolder(int aId, int bId);
+    // 将收藏收纳进已有文件夹
+    void addToFolder(int folderId, int bookmarkId);
 
     QList<Group> m_groups;
     QList<Bookmark> m_bookmarks;   // 当前视图展示的收藏

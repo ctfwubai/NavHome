@@ -85,6 +85,38 @@ bool BrowserLauncher::openUrl(const QString& url, const QString& browserPath) {
     return QDesktopServices::openUrl(QUrl(full));
 }
 
+bool BrowserLauncher::openApp(const QString& command) {
+    const QString trimmed = command.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+
+    // 快捷方式（.lnk）：直接交给系统 Shell 打开，保留原始参数/工作目录
+    if (trimmed.endsWith(".lnk", Qt::CaseInsensitive)) {
+        return QDesktopServices::openUrl(QUrl::fromLocalFile(trimmed));
+    }
+
+    const QStringList parts = QProcess::splitCommand(trimmed);
+    if (parts.isEmpty()) {
+        return false;
+    }
+    const QString program = parts.first();
+    const QStringList args = parts.mid(1);
+    if (!QFileInfo::exists(program)) {
+        return false;
+    }
+    // 在程序所在目录启动，避免相对路径资源找不到
+    return QProcess::startDetached(program, args, QFileInfo(program).absolutePath());
+}
+
+QString BrowserLauncher::exePathFromCommand(const QString& command) {
+    const QStringList parts = QProcess::splitCommand(command.trimmed());
+    if (parts.isEmpty()) {
+        return QString();
+    }
+    return parts.first();
+}
+
 QString BrowserLauncher::ensureScheme(const QString& url) {
     QString trimmed = url.trimmed();
     // 本地文件路径直接返回

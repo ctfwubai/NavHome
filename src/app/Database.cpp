@@ -80,6 +80,7 @@ bool Database::createTables() {
             name        TEXT NOT NULL DEFAULT '',
             url         TEXT NOT NULL DEFAULT '',
             icon        TEXT NOT NULL DEFAULT '',
+            type        TEXT NOT NULL DEFAULT 'url',
             sort_order  INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT NOT NULL DEFAULT '',
             updated_at  TEXT NOT NULL DEFAULT ''
@@ -94,12 +95,49 @@ bool Database::createTables() {
         );
     )";
 
-    const QStringList statements = { sqlGroups, sqlBookmarks, sqlSettings };
+    // 文件夹成员表：文件夹（type=folder 的收藏）与其收纳的收藏/应用
+    const QString sqlFolderItems = R"(
+        CREATE TABLE IF NOT EXISTS folder_items (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            folder_id   INTEGER NOT NULL,
+            bookmark_id INTEGER NOT NULL,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        );
+    )";
+
+    const QStringList statements = { sqlGroups, sqlBookmarks, sqlSettings, sqlFolderItems };
     for (const QString& sql : statements) {
         if (!q.exec(sql)) {
             qWarning() << "创建表失败:" << q.lastError().text();
             return false;
         }
     }
+
+    // 老版本数据库迁移：为 bookmarks 表补充新增列（type 用于区分网址/应用）
+    migrate();
     return true;
+}
+
+// 增量迁移：老库已有数据时，CREATE TABLE IF NOT EXISTS 不会新增列，需逐列补齐
+void Database::migrate() {
+    auto hasColumn = [this](const QString& table, const QString& column) {
+        QSqlQuery q(m_db);
+        q.prepare(QString("PRAGMA table_info(%1)").arg(table));
+        if (!q.exec()) {
+            return false;
+        }
+        while (q.next()) {
+            if (q.value(1).toString() == column) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (!hasColumn("bookmarks", "type")) {
+        QSqlQuery q(m_db);
+        if (!q.exec("ALTER TABLE bookmarks ADD COLUMN type TEXT NOT NULL DEFAULT 'url'")) {
+            qWarning() << "迁移 bookmarks.type 失败:" << q.lastError().text();
+        }
+    }
 }
