@@ -135,15 +135,12 @@ bool BackupManager::importData(const QString& filePath, ImportMode mode, QString
         const QString type = b.value("type").toString().isEmpty() ? "url" : b.value("type").toString();
 
         QSqlQuery q(db);
-        q.prepare("INSERT INTO bookmarks (group_id, name, url, icon, username, password, type, sort_order, created_at, updated_at) "
-                  "VALUES (:gid, :name, :url, :icon, :username, :password, :type, :sort, :created, :updated)");
+        q.prepare("INSERT INTO bookmarks (group_id, name, url, icon, type, sort_order, created_at, updated_at) "
+                  "VALUES (:gid, :name, :url, :icon, :type, :sort, :created, :updated)");
         q.bindValue(":gid", newGroupId);
         q.bindValue(":name", b.value("name").toString());
         q.bindValue(":url", b.value("url").toString());
         q.bindValue(":icon", b.value("icon").toString());
-        // 账号明文原样导入；密码为 DPAPI 密文，原样导入（换机器后不可解密，用户重新填写即可）
-        q.bindValue(":username", b.value("username").toString());
-        q.bindValue(":password", b.value("password").toString());
         q.bindValue(":type", type);
         q.bindValue(":sort", b.value("sort_order").toInt());
         q.bindValue(":created", b.value("created_at").toString());

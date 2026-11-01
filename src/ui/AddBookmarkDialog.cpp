@@ -14,7 +14,6 @@
 #include <QDateTime>
 #include <QLabel>
 #include <QPixmap>
-#include <QCheckBox>
 
 #include "app/BrowserLauncher.h"
 #include "app/AppConfig.h"
@@ -54,22 +53,8 @@ void AddBookmarkDialog::buildUi() {
         m_groupCombo->addItem(g.name, g.id);
     }
 
-    m_usernameEdit = new QLineEdit(this);
-    m_usernameEdit->setPlaceholderText("登录账号（可选）");
-
-    m_passwordEdit = new QLineEdit(this);
-    m_passwordEdit->setPlaceholderText("登录密码（可选，本地加密保存）");
-    m_passwordEdit->setEchoMode(QLineEdit::Password);
-    m_showPwdCheck = new QCheckBox("显示", this);
-    auto* pwdRow = new QHBoxLayout();
-    pwdRow->setSpacing(6);
-    pwdRow->addWidget(m_passwordEdit, 1);
-    pwdRow->addWidget(m_showPwdCheck);
-
     form->addRow("名称：", m_nameEdit);
     form->addRow("网址：", m_urlEdit);
-    form->addRow("账号：", m_usernameEdit);
-    form->addRow("密码：", pwdRow);
     form->addRow("分组：", m_groupCombo);
 
     // 自定义图标行：预览 + 选择 + 清除
@@ -98,9 +83,6 @@ void AddBookmarkDialog::buildUi() {
 
     connect(m_chooseIconBtn, &QPushButton::clicked, this, &AddBookmarkDialog::chooseIcon);
     connect(m_clearIconBtn, &QPushButton::clicked, this, &AddBookmarkDialog::clearIcon);
-    connect(m_showPwdCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        m_passwordEdit->setEchoMode(checked ? QLineEdit::Normal : QLineEdit::Password);
-    });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
@@ -149,8 +131,6 @@ void AddBookmarkDialog::setBookmark(const Bookmark& b) {
     m_original = b;
     m_nameEdit->setText(b.name);
     m_urlEdit->setText(b.url);
-    m_usernameEdit->setText(b.username);
-    m_passwordEdit->setText(b.password);
     const int idx = m_groupCombo->findData(b.groupId);
     if (idx >= 0) {
         m_groupCombo->setCurrentIndex(idx);
@@ -170,8 +150,6 @@ Bookmark AddBookmarkDialog::result() const {
     Bookmark b = m_original;
     b.name = m_nameEdit->text().trimmed();
     b.url = BrowserLauncher::ensureScheme(m_urlEdit->text().trimmed());
-    b.username = m_usernameEdit->text().trimmed();
-    b.password = m_passwordEdit->text();
     b.groupId = m_groupCombo->currentData().toInt();
     // 自定义图标仅在用户改动时更新；未改动则保留原图标
     if (m_iconTouched) {

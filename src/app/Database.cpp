@@ -81,8 +81,6 @@ bool Database::createTables() {
             name        TEXT NOT NULL DEFAULT '',
             url         TEXT NOT NULL DEFAULT '',
             icon        TEXT NOT NULL DEFAULT '',
-            username    TEXT NOT NULL DEFAULT '',
-            password    TEXT NOT NULL DEFAULT '',
             type        TEXT NOT NULL DEFAULT 'url',
             sort_order  INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT NOT NULL DEFAULT '',
@@ -141,20 +139,6 @@ void Database::migrate() {
         QSqlQuery q(m_db);
         if (!q.exec("ALTER TABLE bookmarks ADD COLUMN type TEXT NOT NULL DEFAULT 'url'")) {
             qWarning() << "迁移 bookmarks.type 失败:" << q.lastError().text();
-        }
-    }
-
-    if (!hasColumn("bookmarks", "username")) {
-        QSqlQuery q(m_db);
-        if (!q.exec("ALTER TABLE bookmarks ADD COLUMN username TEXT NOT NULL DEFAULT ''")) {
-            qWarning() << "迁移 bookmarks.username 失败:" << q.lastError().text();
-        }
-    }
-
-    if (!hasColumn("bookmarks", "password")) {
-        QSqlQuery q(m_db);
-        if (!q.exec("ALTER TABLE bookmarks ADD COLUMN password TEXT NOT NULL DEFAULT ''")) {
-            qWarning() << "迁移 bookmarks.password 失败:" << q.lastError().text();
         }
     }
 

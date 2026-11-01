@@ -9,7 +9,6 @@ class QLineEdit;
 class QComboBox;
 class QLabel;
 class QPushButton;
-class QCheckBox;
 
 // 添加 / 编辑收藏对话框（对应需求 3.4.1 / 3.4.2）
 class AddBookmarkDialog : public QDialog {
@@ -37,9 +36,6 @@ private:
 
     QLineEdit* m_nameEdit = nullptr;
     QLineEdit* m_urlEdit = nullptr;
-    QLineEdit* m_usernameEdit = nullptr;
-    QLineEdit* m_passwordEdit = nullptr;
-    QCheckBox* m_showPwdCheck = nullptr;
     QComboBox* m_groupCombo = nullptr;
     QLabel* m_iconPreview = nullptr;
     QPushButton* m_chooseIconBtn = nullptr;

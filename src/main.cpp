@@ -127,33 +127,17 @@ QString chooseDataDir() {
     return appData;
 }
 
-// 首次运行（无任何收藏）时预置默认分组与常用收藏；
-// 老用户重装后数据从数据目录恢复，不会重复插入
+// 首次运行（数据库为空）时预置默认分组与常用收藏；
+// 老用户重装后数据从 %APPDATA% 恢复，不会重复插入
 void seedDefaultBookmarks() {
     BookmarkRepository& repo = BookmarkRepository::instance();
-    // 已有收藏则不预置，避免覆盖用户数据；分组存在不影响（会复用“常用”分组）
-    if (!repo.allBookmarks().isEmpty()) {
+    if (!repo.allBookmarks().isEmpty() || !repo.groups().isEmpty()) {
         return;
     }
-
-    // 优先复用“常用”分组，其次第一个分组，最后才新建“常用”
-    int groupId = -1;
-    for (const Group& g : repo.groups()) {
-        if (g.name == "常用") {
-            groupId = g.id;
-            break;
-        }
-    }
-    if (groupId < 0 && !repo.groups().isEmpty()) {
-        groupId = repo.groups().first().id;
-    }
-    if (groupId < 0) {
-        groupId = repo.addGroup("常用");
-    }
+    const int groupId = repo.addGroup("常用");
     if (groupId < 0) {
         return;
     }
-
     const QStringList urls = {
         "https://cn.bing.com/",
         "https://www.deepseek.com/",
@@ -179,7 +163,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("NavHome");
     QApplication::setApplicationDisplayName("导航之家");
-    QApplication::setApplicationVersion("2.3.1");
+    QApplication::setApplicationVersion("2.2.2");
     QApplication::setOrganizationName("NavHome");
 
     // 数据目录：程序目录可写则便携（数据随程序），否则回退到用户数据目录

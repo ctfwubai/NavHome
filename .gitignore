@@ -42,7 +42,3 @@ backups/
 Thumbs.db
 Desktop.ini
 .DS_Store
-
-# 测试产物
-test_data.db
-test_backup.json

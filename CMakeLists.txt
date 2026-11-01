@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # 导航之家（NavHome）网页管家
 # 本地单机 Windows 桌面应用，技术栈 C++17 + Qt6 Widgets + SQLite
 project(NavHome
-    VERSION 2.3.1
+    VERSION 2.2.2
     DESCRIPTION "导航之家（NavHome）网页管家"
     LANGUAGES CXX)
 
@@ -64,8 +64,8 @@ if(WIN32)
         COPYONLY
     )
     target_sources(NavHome PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.rc")
-    # 标题栏深色模式（DwmSetWindowAttribute）+ 快捷方式解析（IShellLink COM）+ exe 版本信息 + 密码 DPAPI 加密
-    target_link_libraries(NavHome PRIVATE dwmapi ole32 uuid version crypt32)
+    # 标题栏深色模式（DwmSetWindowAttribute）+ 快捷方式解析（IShellLink COM）+ exe 版本信息
+    target_link_libraries(NavHome PRIVATE dwmapi ole32 uuid version)
 endif()
 
 # —— 数据层测试（可选，-DNAVHOME_BUILD_TESTS=ON 时构建）——
@@ -75,12 +75,8 @@ if(NAVHOME_BUILD_TESTS)
         tests/test_data.cpp
         src/app/Database.cpp
         src/app/BackupManager.cpp
-        src/app/Crypto.cpp
         src/models/BookmarkRepository.cpp
     )
     target_include_directories(NavHomeTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(NavHomeTest PRIVATE Qt6::Core Qt6::Sql)
-    if(WIN32)
-        target_link_libraries(NavHomeTest PRIVATE crypt32)
-    endif()
 endif()
