@@ -891,7 +891,7 @@ void MainWindow::addToFolder(int folderId, int bookmarkId) {
 QWidget* MainWindow::widgetAt(const QPoint& pos) const {
     for (int i = 0; i < m_gridLayout->count(); ++i) {
         QWidget* w = m_gridLayout->itemAt(i)->widget();
-        if (w && w->isVisible() && w->geometry().contains(pos)) {
+        if (w && w->isVisible() && w != m_dragPlaceholder && w->geometry().contains(pos)) {
             return w;
         }
     }
@@ -931,13 +931,13 @@ bool MainWindow::inMergeZone(const QWidget* card, const QPoint& pos) const {
 }
 
 int MainWindow::insertIndexFor(const QPoint& pos) const {
-    // 返回“应插入到第几个可见卡片之前”（0..可见卡片数），跳过隐藏的占位卡片
+    // 返回“应插入到第几个可见卡片之前”（0..可见卡片数），跳过隐藏控件与占位
     int visible = 0;
     int targetIndex = 0;
     bool found = false;
     for (int i = 0; i < m_gridLayout->count(); ++i) {
         QWidget* w = m_gridLayout->itemAt(i)->widget();
-        if (!w || !w->isVisible()) {
+        if (!w || !w->isVisible() || w == m_dragPlaceholder) {
             continue;
         }
         ++visible;
@@ -966,27 +966,41 @@ void MainWindow::beginDragSort(int sourceId, const QByteArray& mimeType) {
         return;
     }
     m_dragOriginalIndex = idx;
-    m_gridLayout->takeWidgetAt(idx);   // 从布局取出
-    src->hide();                       // 隐藏源卡片，拖拽视觉由 QDrag 的 pixmap 承担
+
+    // 记录源卡片尺寸（隐藏前），占位据此占满一个卡片位，使周围卡片明显让位
+    const QSize phSize = src->size().isEmpty() ? src->sizeHint() : src->size();
+
+    // 源卡片移出布局并隐藏（拖拽视觉由 QDrag 的 pixmap 承担）
+    m_gridLayout->takeWidgetAt(idx);
+    src->hide();
     m_dragWidget = src;
-    // 先作为占位插到末尾，随 DragMove 更新位置
-    m_gridLayout->insertWidget(m_gridLayout->count(), src);
+
+    // 创建可见占位（虚线框），插到源原位，随 DragMove 移动、周围卡片实时让位
+    m_dragPlaceholder = new QWidget(m_gridContainer);
+    m_dragPlaceholder->setFixedSize(phSize);
+    m_dragPlaceholder->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_dragPlaceholder->setStyleSheet(
+        "background: rgba(0,120,215,0.10); border: 2px dashed #0078d7; border-radius: 8px;");
+    m_gridLayout->insertWidget(idx, m_dragPlaceholder);
     m_gridLayout->activate();
 }
 
 void MainWindow::endDragSort() {
     clearMergeTarget();
-    m_dragWidget = nullptr;
+    removePlaceholder();
+    // drop 后由 refreshBookmarks 重建全部卡片；源卡片延迟销毁，避免在 QDrag exec 内删除
+    if (m_dragWidget) {
+        m_dragWidget->deleteLater();
+        m_dragWidget = nullptr;
+    }
     m_dragOriginalIndex = -1;
 }
 
 void MainWindow::cancelDragSort() {
     clearMergeTarget();
+    removePlaceholder();
     if (m_dragWidget) {
-        const int cur = m_gridLayout->indexOf(m_dragWidget);
-        if (cur >= 0) {
-            m_gridLayout->takeWidgetAt(cur);
-        }
+        // 源卡片已被移出布局，直接插回原位恢复显示
         m_gridLayout->insertWidget(qBound(0, m_dragOriginalIndex, m_gridLayout->count()), m_dragWidget);
         m_dragWidget->show();
         m_dragWidget = nullptr;
@@ -996,15 +1010,29 @@ void MainWindow::cancelDragSort() {
 }
 
 void MainWindow::movePlaceholder(const QPoint& pos) {
-    if (!m_dragWidget) {
+    if (!m_dragPlaceholder) {
         return;
     }
-    const int cur = m_gridLayout->indexOf(m_dragWidget);
+    m_dragPlaceholder->show();
+    const int cur = m_gridLayout->indexOf(m_dragPlaceholder);
     if (cur >= 0) {
         m_gridLayout->takeWidgetAt(cur);
     }
     const int k = insertIndexFor(pos);
-    m_gridLayout->insertWidget(qBound(0, k, m_gridLayout->count()), m_dragWidget);
+    m_gridLayout->insertWidget(qBound(0, k, m_gridLayout->count()), m_dragPlaceholder);
+    m_gridLayout->activate();
+}
+
+void MainWindow::removePlaceholder() {
+    if (!m_dragPlaceholder) {
+        return;
+    }
+    const int cur = m_gridLayout->indexOf(m_dragPlaceholder);
+    if (cur >= 0) {
+        m_gridLayout->takeWidgetAt(cur);
+    }
+    m_dragPlaceholder->deleteLater();
+    m_dragPlaceholder = nullptr;
     m_gridLayout->activate();
 }
 
@@ -1017,13 +1045,9 @@ void MainWindow::setMergeTarget(QWidget* target) {
     target->setProperty("hoverMerge", true);
     target->style()->unpolish(target);
     target->style()->polish(target);
-    // 合并模式：源卡片不再让位，恢复到原始位置（仍隐藏）
-    if (m_dragWidget) {
-        const int cur = m_gridLayout->indexOf(m_dragWidget);
-        if (cur >= 0) {
-            m_gridLayout->takeWidgetAt(cur);
-        }
-        m_gridLayout->insertWidget(qBound(0, m_dragOriginalIndex, m_gridLayout->count()), m_dragWidget);
+    // 合并模式：隐藏占位（不再让位），仅保留目标高亮
+    if (m_dragPlaceholder) {
+        m_dragPlaceholder->hide();
         m_gridLayout->activate();
     }
 }

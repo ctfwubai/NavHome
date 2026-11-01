@@ -95,6 +95,7 @@ private:
     bool inMergeZone(const QWidget* card, const QPoint& pos) const;
     int insertIndexFor(const QPoint& pos) const;
     void movePlaceholder(const QPoint& pos);
+    void removePlaceholder();
     void setMergeTarget(QWidget* target);
     void clearMergeTarget();
 
@@ -132,7 +133,8 @@ private:
     QString m_lastBg;
 
     // 拖拽让位排序 / 悬停合并状态
-    QWidget* m_dragWidget = nullptr;        // 正在拖拽的源卡片（隐藏，作占位）
+    QWidget* m_dragWidget = nullptr;        // 正在拖拽的源卡片（隐藏，拖拽视觉由 QDrag pixmap 承担）
+    QWidget* m_dragPlaceholder = nullptr;   // 可见占位（虚线框），指示松手后的插入位置
     int m_dragOriginalIndex = -1;           // 源卡片原始布局索引
     QWidget* m_mergeTargetWidget = nullptr; // 悬停合并目标（高亮）
 };
