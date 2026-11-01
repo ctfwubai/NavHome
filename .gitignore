@@ -1,0 +1,44 @@
+# 构建产物
+build/
+NavHome-build/
+installer/dist/
+installer/icons/
+*.exe
+*.obj
+*.o
+*.dll
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# CMake 生成文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+.ninja_*
+compile_commands.json
+
+# 运行时数据
+navhome.db
+navhome.db-journal
+navhome.db-wal
+navhome.db-shm
+config.ini
+
+# 备份文件
+backups/
+*.bak
+
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.user
+*.suo
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store

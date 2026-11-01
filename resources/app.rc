@@ -1,0 +1,3 @@
+// 导航之家（NavHome）Windows 资源文件
+// 应用图标由 app.ico 提供（构建时复制到构建目录根，见 CMakeLists.txt）
+IDI_ICON1 ICON "app.ico"
