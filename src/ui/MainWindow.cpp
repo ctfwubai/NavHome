@@ -277,6 +277,7 @@ void MainWindow::buildUi() {
     m_gridContainer->setContextMenuPolicy(Qt::CustomContextMenu);  // 空白处右键
     m_gridContainer->installEventFilter(this);
     m_gridLayout = new FlowLayout(m_gridContainer, 4, 10, 10);
+
     m_scrollArea->setWidget(m_gridContainer);
     rightLayout->addWidget(m_scrollArea, 1);
 
@@ -680,8 +681,8 @@ void MainWindow::onShowHelp() {
     const Section sections[] = {
         {"添加收藏", "点右上角「＋ 添加收藏」输入名称和网址；也可以直接把 .exe / .lnk 文件拖进窗口，自动生成应用卡片。"},
         {"分组", "左侧点「＋」新增分组；把卡片拖到左侧分组名上即可移动分组。"},
-        {"排序", "按住卡片拖动即可调整顺序。"},
-        {"文件夹", "把一个卡片拖到另一个卡片上并停留约半秒，自动合并成文件夹；双击标题（或点 ✎）重命名，点 ✕ 解散；从文件夹里拖出单个图标即可移出。"},
+        {"排序", "按住卡片拖动，周围的卡片会自动让位，松手即可放到该位置。"},
+        {"文件夹", "把一个卡片拖到另一个卡片的中央（出现高亮）松手即合并成文件夹；拖到文件夹上松手则收纳进去。双击标题（或点 ✎）重命名，点 ✕ 解散；从文件夹里拖出单个图标即可移出。"},
         {"多选", "点右上角「☑ 多选」进入批量删除 / 移动。"},
         {"设置", "点右上角「⚙ 设置」配置浏览器、主题、背景与数据备份恢复。"},
     };
@@ -885,93 +886,173 @@ void MainWindow::addToFolder(int folderId, int bookmarkId) {
     refreshBookmarks();
 }
 
-void MainWindow::updateFolderHover(int sourceId, const QPoint& pos) {
-    // 找出鼠标当前悬停的卡片/文件夹
-    QWidget* target = nullptr;
+// —— 拖拽让位排序 + 悬停合并 ——
+
+QWidget* MainWindow::widgetAt(const QPoint& pos) const {
     for (int i = 0; i < m_gridLayout->count(); ++i) {
         QWidget* w = m_gridLayout->itemAt(i)->widget();
-        if (w && w->geometry().contains(pos)) {
-            target = w;
+        if (w && w->isVisible() && w->geometry().contains(pos)) {
+            return w;
+        }
+    }
+    return nullptr;
+}
+
+QWidget* MainWindow::widgetById(int id, const QByteArray& mimeType) const {
+    for (int i = 0; i < m_gridLayout->count(); ++i) {
+        QWidget* w = m_gridLayout->itemAt(i)->widget();
+        if (!w) {
+            continue;
+        }
+        if (mimeType == kBookmarkMime) {
+            if (auto* card = qobject_cast<BookmarkCardWidget*>(w)) {
+                if (card->bookmarkId() == id) {
+                    return w;
+                }
+            }
+        } else if (mimeType == kFolderMime) {
+            if (auto* folder = qobject_cast<FolderCardWidget*>(w)) {
+                if (folder->folderId() == id) {
+                    return w;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool MainWindow::inMergeZone(const QWidget* card, const QPoint& pos) const {
+    // 卡片中央约 50% 区域判定为“合并意图”，边缘 / 间隙则判定为排序
+    const QRect r = card->geometry();
+    const QPoint c = r.center();
+    const int hw = r.width() / 4;
+    const int hh = r.height() / 4;
+    return qAbs(pos.x() - c.x()) <= hw && qAbs(pos.y() - c.y()) <= hh;
+}
+
+int MainWindow::insertIndexFor(const QPoint& pos) const {
+    // 返回“应插入到第几个可见卡片之前”（0..可见卡片数），跳过隐藏的占位卡片
+    int visible = 0;
+    int targetIndex = 0;
+    bool found = false;
+    for (int i = 0; i < m_gridLayout->count(); ++i) {
+        QWidget* w = m_gridLayout->itemAt(i)->widget();
+        if (!w || !w->isVisible()) {
+            continue;
+        }
+        ++visible;
+        const QRect r = w->geometry();
+        const bool before = (pos.y() < r.top())
+            || (pos.y() < r.bottom() && pos.x() < r.center().x());
+        if (before) {
+            targetIndex = visible - 1;
+            found = true;
             break;
         }
     }
+    return found ? targetIndex : visible;
+}
 
-    int kind = 0;
-    int targetId = -1;
-    if (auto* folder = qobject_cast<FolderCardWidget*>(target)) {
-        kind = 1;
-        targetId = folder->folderId();
-    } else if (auto* card = qobject_cast<BookmarkCardWidget*>(target)) {
-        if (card->bookmarkId() != sourceId) {
-            kind = 2;
-            targetId = card->bookmarkId();
-        } else {
-            target = nullptr;  // 悬停在源卡片自身，不触发
-        }
-    } else {
-        target = nullptr;
-    }
-
-    // 目标未变：累计停留时长，超过阈值则自动合并
-    // （Windows 原生拖放走 OLE 模态循环，QTimer 不触发，故用 DragMove 事件 + 计时）
-    if (target && target == m_hoverTargetWidget && sourceId == m_hoverSourceId) {
-        if (m_hoverElapsed.isValid() && m_hoverElapsed.elapsed() >= 600) {
-            commitFolderMerge();
-        }
+void MainWindow::beginDragSort(int sourceId, const QByteArray& mimeType) {
+    if (m_dragWidget) {
         return;
     }
-
-    clearFolderHover();
-    if (!target) {
+    QWidget* src = widgetById(sourceId, mimeType);
+    if (!src) {
         return;
     }
-    m_hoverSourceId = sourceId;
-    m_hoverTargetWidget = target;
-    m_hoverTargetKind = kind;
-    m_hoverTargetId = targetId;
+    const int idx = m_gridLayout->indexOf(src);
+    if (idx < 0) {
+        return;
+    }
+    m_dragOriginalIndex = idx;
+    m_gridLayout->takeWidgetAt(idx);   // 从布局取出
+    src->hide();                       // 隐藏源卡片，拖拽视觉由 QDrag 的 pixmap 承担
+    m_dragWidget = src;
+    // 先作为占位插到末尾，随 DragMove 更新位置
+    m_gridLayout->insertWidget(m_gridLayout->count(), src);
+    m_gridLayout->activate();
+}
 
-    // 视觉反馈：高亮即将合并的目标卡片
+void MainWindow::endDragSort() {
+    clearMergeTarget();
+    m_dragWidget = nullptr;
+    m_dragOriginalIndex = -1;
+}
+
+void MainWindow::cancelDragSort() {
+    clearMergeTarget();
+    if (m_dragWidget) {
+        const int cur = m_gridLayout->indexOf(m_dragWidget);
+        if (cur >= 0) {
+            m_gridLayout->takeWidgetAt(cur);
+        }
+        m_gridLayout->insertWidget(qBound(0, m_dragOriginalIndex, m_gridLayout->count()), m_dragWidget);
+        m_dragWidget->show();
+        m_dragWidget = nullptr;
+        m_gridLayout->activate();
+    }
+    m_dragOriginalIndex = -1;
+}
+
+void MainWindow::movePlaceholder(const QPoint& pos) {
+    if (!m_dragWidget) {
+        return;
+    }
+    const int cur = m_gridLayout->indexOf(m_dragWidget);
+    if (cur >= 0) {
+        m_gridLayout->takeWidgetAt(cur);
+    }
+    const int k = insertIndexFor(pos);
+    m_gridLayout->insertWidget(qBound(0, k, m_gridLayout->count()), m_dragWidget);
+    m_gridLayout->activate();
+}
+
+void MainWindow::setMergeTarget(QWidget* target) {
+    if (m_mergeTargetWidget == target) {
+        return;
+    }
+    clearMergeTarget();
+    m_mergeTargetWidget = target;
     target->setProperty("hoverMerge", true);
     target->style()->unpolish(target);
     target->style()->polish(target);
-    m_hoverElapsed.start();
+    // 合并模式：源卡片不再让位，恢复到原始位置（仍隐藏）
+    if (m_dragWidget) {
+        const int cur = m_gridLayout->indexOf(m_dragWidget);
+        if (cur >= 0) {
+            m_gridLayout->takeWidgetAt(cur);
+        }
+        m_gridLayout->insertWidget(qBound(0, m_dragOriginalIndex, m_gridLayout->count()), m_dragWidget);
+        m_gridLayout->activate();
+    }
 }
 
-void MainWindow::clearFolderHover() {
-    if (m_hoverTargetWidget) {
-        m_hoverTargetWidget->setProperty("hoverMerge", false);
-        m_hoverTargetWidget->style()->unpolish(m_hoverTargetWidget);
-        m_hoverTargetWidget->style()->polish(m_hoverTargetWidget);
+void MainWindow::clearMergeTarget() {
+    if (m_mergeTargetWidget) {
+        m_mergeTargetWidget->setProperty("hoverMerge", false);
+        m_mergeTargetWidget->style()->unpolish(m_mergeTargetWidget);
+        m_mergeTargetWidget->style()->polish(m_mergeTargetWidget);
+        m_mergeTargetWidget = nullptr;
     }
-    m_hoverSourceId = -1;
-    m_hoverTargetWidget = nullptr;
-    m_hoverTargetKind = 0;
-    m_hoverTargetId = -1;
-    m_hoverElapsed.invalidate();
 }
 
-void MainWindow::commitFolderMerge() {
-    const int sourceId = m_hoverSourceId;
-    const int kind = m_hoverTargetKind;
-    const int targetId = m_hoverTargetId;
-    clearFolderHover();
-
-    // 取消源卡片的拖拽，让 drag 循环退出
-    for (int i = 0; i < m_gridLayout->count(); ++i) {
-        auto* card = qobject_cast<BookmarkCardWidget*>(m_gridLayout->itemAt(i)->widget());
-        if (card && card->bookmarkId() == sourceId) {
-            card->cancelDrag();
-            break;
-        }
+void MainWindow::updateDragSort(const QPoint& pos) {
+    // 依据鼠标位置决定当前是“合并”还是“排序让位”
+    QWidget* target = widgetAt(pos);
+    bool merge = false;
+    if (auto* folder = qobject_cast<FolderCardWidget*>(target)) {
+        merge = true;                                     // 拖到文件夹上任意位置 → 收纳
+    } else if (auto* card = qobject_cast<BookmarkCardWidget*>(target)) {
+        merge = card != m_dragWidget && inMergeZone(card, pos);  // 拖到卡片中央 → 合并
     }
-    // 等拖拽循环彻底结束后再合并，避免删除仍在拖拽中的卡片
-    QTimer::singleShot(0, this, [this, sourceId, kind, targetId] {
-        if (kind == 1) {
-            addToFolder(targetId, sourceId);
-        } else if (kind == 2) {
-            createFolder(sourceId, targetId);
-        }
-    });
+
+    if (merge) {
+        setMergeTarget(target);
+    } else {
+        clearMergeTarget();
+        movePlaceholder(pos);
+    }
 }
 
 void MainWindow::onGroupSelected() {
@@ -1012,8 +1093,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 if (gid < 0) {
                     gid = 0;  // 拖到「全部」→ 移到“未分组”
                 }
+                cancelDragSort();  // 若源卡片仍处于让位隐藏状态，先恢复
                 if (BookmarkRepository::instance().moveBookmarks({id}, gid)) {
                     refreshGroups();
+                    refreshBookmarks();
                 }
                 e->acceptProposedAction();
                 return true;
@@ -1022,84 +1105,68 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
     } else if (obj == m_gridContainer) {
         if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             auto* e = static_cast<QDragMoveEvent*>(event);
-            if (e->mimeData()->hasFormat(kBookmarkMime) ||
-                e->mimeData()->hasFormat(kFolderMime) ||
-                e->mimeData()->hasFormat(kFolderItemMime) ||
+            const bool bookmark = e->mimeData()->hasFormat(kBookmarkMime);
+            const bool folder = e->mimeData()->hasFormat(kFolderMime);
+            if (bookmark || folder || e->mimeData()->hasFormat(kFolderItemMime) ||
                 hasAppFile(e->mimeData())) {
                 e->acceptProposedAction();
-                if (event->type() == QEvent::DragMove &&
-                    e->mimeData()->hasFormat(kBookmarkMime)) {
-                    // 悬浮检测：拖拽卡片在目标上方停留自动合并
-                    updateFolderHover(e->mimeData()->data(kBookmarkMime).toInt(),
-                                      e->position().toPoint());
+                if (event->type() == QEvent::DragEnter) {
+                    // 进入容器：隐藏源卡片作为占位，开始让位排序
+                    if (bookmark) {
+                        beginDragSort(e->mimeData()->data(kBookmarkMime).toInt(), kBookmarkMime);
+                    } else if (folder) {
+                        beginDragSort(e->mimeData()->data(kFolderMime).toInt(), kFolderMime);
+                    }
+                } else if (event->type() == QEvent::DragMove) {
+                    if (bookmark) {
+                        // 收藏卡片：支持让位排序 + 悬停中央合并
+                        updateDragSort(e->position().toPoint());
+                    } else if (folder) {
+                        // 文件夹整体拖动：仅让位排序，不合并
+                        clearMergeTarget();
+                        movePlaceholder(e->position().toPoint());
+                    }
                 }
                 return true;
             }
         } else if (event->type() == QEvent::DragLeave) {
-            clearFolderHover();
+            cancelDragSort();
         } else if (event->type() == QEvent::Drop) {
             auto* e = static_cast<QDropEvent*>(event);
-            clearFolderHover();
             if (e->mimeData()->hasFormat(kBookmarkMime)) {
                 const int id = e->mimeData()->data(kBookmarkMime).toInt();
-                const QPoint pos = e->position().toPoint();
-                // 落在某卡片/文件夹上 → 创建或加入文件夹（拖到卡片上方松手）
-                QWidget* target = nullptr;
-                for (int i = 0; i < m_gridLayout->count(); ++i) {
-                    QWidget* w = m_gridLayout->itemAt(i)->widget();
-                    if (w && w->geometry().contains(pos)) {
-                        target = w;
-                        break;
+
+                // 合并目标已高亮 → 收纳进文件夹 / 合并成新文件夹
+                if (m_mergeTargetWidget) {
+                    int folderId = -1;
+                    int cardId = -1;
+                    if (auto* folder = qobject_cast<FolderCardWidget*>(m_mergeTargetWidget)) {
+                        folderId = folder->folderId();
+                    } else if (auto* card = qobject_cast<BookmarkCardWidget*>(m_mergeTargetWidget)) {
+                        cardId = card->bookmarkId();
                     }
-                }
-                if (target) {
-                    if (auto* folder = qobject_cast<FolderCardWidget*>(target)) {
-                        addToFolder(folder->folderId(), id);
-                    } else if (auto* card = qobject_cast<BookmarkCardWidget*>(target)) {
-                        if (card->bookmarkId() != id) {
-                            createFolder(id, card->bookmarkId());
-                        }
+                    endDragSort();
+                    if (folderId >= 0) {
+                        addToFolder(folderId, id);
+                    } else if (cardId >= 0) {
+                        createFolder(id, cardId);
                     }
                     e->acceptProposedAction();
                     return true;
                 }
-                // 否则按排序处理：落在卡片之间（拖到前面 = 排序）
-                int targetIndex = m_bookmarks.size();
-                for (int i = 0; i < m_gridLayout->count(); ++i) {
-                    QWidget* w = m_gridLayout->itemAt(i)->widget();
-                    if (!w) {
-                        continue;
-                    }
-                    const QRect r = w->geometry();
-                    const bool before = (pos.y() < r.top())
-                        || (pos.y() < r.bottom() && pos.x() < r.center().x());
-                    if (before) {
-                        targetIndex = i;
-                        break;
-                    }
-                }
-                reorderBookmark(id, targetIndex);
+
+                // 否则 → 排序（占位即目标位置）
+                const int k = insertIndexFor(e->position().toPoint());
+                endDragSort();
+                reorderBookmark(id, k);
                 e->acceptProposedAction();
                 return true;
             }
             if (e->mimeData()->hasFormat(kFolderMime)) {
                 const int id = e->mimeData()->data(kFolderMime).toInt();
-                const QPoint pos = e->position().toPoint();
-                int targetIndex = m_bookmarks.size();
-                for (int i = 0; i < m_gridLayout->count(); ++i) {
-                    QWidget* w = m_gridLayout->itemAt(i)->widget();
-                    if (!w) {
-                        continue;
-                    }
-                    const QRect r = w->geometry();
-                    const bool before = (pos.y() < r.top())
-                        || (pos.y() < r.bottom() && pos.x() < r.center().x());
-                    if (before) {
-                        targetIndex = i;
-                        break;
-                    }
-                }
-                reorderBookmark(id, targetIndex);
+                const int k = insertIndexFor(e->position().toPoint());
+                endDragSort();
+                reorderBookmark(id, k);
                 e->acceptProposedAction();
                 return true;
             }
@@ -1248,7 +1315,8 @@ void MainWindow::onGridContextMenu(const QPoint& pos) {
     menu.exec((w ? w : m_gridContainer)->mapToGlobal(pos));
 }
 
-void MainWindow::reorderBookmark(int id, int targetIndex) {
+void MainWindow::reorderBookmark(int id, int k) {
+    // k：源卡片移除后，应插入到可见列表（不含源）的第 k 个位置
     auto& repo = BookmarkRepository::instance();
     const int gid = currentGroupId();
 
@@ -1272,41 +1340,40 @@ void MainWindow::reorderBookmark(int id, int targetIndex) {
         return;
     }
 
-    // 将视图内目标索引映射为全局索引
-    int dstGlobal;
+    // 先移除源，后续在“不含源”的序列里计算插入位置
+    Bookmark moved = globalVisible.takeAt(srcGlobal);
+
+    int dst;
     if (gid < 0) {
-        // “全部”视图：目标索引即全局索引
-        dstGlobal = targetIndex;
+        // “全部”视图：k 即全局可见索引
+        dst = k;
     } else {
-        // 单分组视图：目标索引是该分组在全局列表中第 targetIndex 个可见收藏的位置
-        dstGlobal = -1;
+        // 单分组视图：k 是该分组可见收藏中的位置，映射为全局索引
+        dst = -1;
         int cnt = 0;
         for (int i = 0; i < globalVisible.size(); ++i) {
             if (globalVisible[i].groupId == gid) {
-                if (cnt == targetIndex) {
-                    dstGlobal = i;
+                if (cnt == k) {
+                    dst = i;
                     break;
                 }
                 ++cnt;
             }
         }
-        if (dstGlobal < 0) {
-            dstGlobal = globalVisible.size();
+        if (dst < 0) {
+            // k 超出该分组可见数 → 插到该分组末尾
+            dst = globalVisible.size();
             for (int i = globalVisible.size() - 1; i >= 0; --i) {
                 if (globalVisible[i].groupId == gid) {
-                    dstGlobal = i + 1;
+                    dst = i + 1;
                     break;
                 }
             }
         }
     }
 
-    if (dstGlobal > srcGlobal) {
-        --dstGlobal;  // 移除后索引左移
-    }
-    dstGlobal = qBound(0, dstGlobal, globalVisible.size());
-    Bookmark moved = globalVisible.takeAt(srcGlobal);
-    globalVisible.insert(dstGlobal, moved);
+    dst = qBound(0, dst, globalVisible.size());
+    globalVisible.insert(dst, moved);
 
     // 全局重排 sort_order（各分组相对顺序不变，仅调整拖拽目标）
     for (int i = 0; i < globalVisible.size(); ++i) {

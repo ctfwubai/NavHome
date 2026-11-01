@@ -31,6 +31,11 @@ public:
     void addWidget(QWidget* w);
     void removeAllWidgets();
 
+    // 拖拽让位排序：在指定索引插入控件；移除指定索引的控件（不销毁，返回其指针）
+    void insertWidget(int index, QWidget* w);
+    QWidget* takeWidgetAt(int index);
+    int indexOf(const QWidget* w) const;
+
 private:
     int doLayout(const QRect& rect, bool testOnly) const;
     int smartSpacing(QStyle::PixelMetric pm) const;

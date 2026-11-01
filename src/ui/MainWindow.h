@@ -4,7 +4,6 @@
 #include <QList>
 #include <QSet>
 #include <QPoint>
-#include <QElapsedTimer>
 
 #include "models/Group.h"
 #include "models/Bookmark.h"
@@ -75,7 +74,7 @@ private:
     const Group* findGroup(int id) const;
     Bookmark* findBookmark(int id);
     void updateEmptyHint();
-    void reorderBookmark(int id, int targetIndex);
+    void reorderBookmark(int id, int k);
     // 由程序路径/命令行创建应用卡片并提取图标（拖入 .exe/.lnk 与手动添加共用）
     void addAppFromCommand(const QString& command, const QString& name = QString());
     // 提取 exe 图标并保存为本地 PNG，写回 icon 字段
@@ -86,10 +85,18 @@ private:
     void createFolder(int aId, int bId);
     // 将收藏收纳进已有文件夹
     void addToFolder(int folderId, int bookmarkId);
-    // 拖拽悬浮检测：在卡片/文件夹上方停留一段时间后自动合并
-    void updateFolderHover(int sourceId, const QPoint& pos);
-    void clearFolderHover();
-    void commitFolderMerge();
+    // 拖拽让位排序 + 悬停合并：排序时其他卡片自动让位，悬停卡片中央则合并
+    void beginDragSort(int sourceId, const QByteArray& mimeType);
+    void endDragSort();
+    void cancelDragSort();
+    void updateDragSort(const QPoint& pos);
+    QWidget* widgetAt(const QPoint& pos) const;
+    QWidget* widgetById(int id, const QByteArray& mimeType) const;
+    bool inMergeZone(const QWidget* card, const QPoint& pos) const;
+    int insertIndexFor(const QPoint& pos) const;
+    void movePlaceholder(const QPoint& pos);
+    void setMergeTarget(QWidget* target);
+    void clearMergeTarget();
 
     QList<Group> m_groups;
     QList<Bookmark> m_bookmarks;   // 当前视图展示的收藏
@@ -124,10 +131,8 @@ private:
     bool m_lastDark = false;
     QString m_lastBg;
 
-    // 悬浮合并：拖拽卡片在目标上方停留约 0.6 秒后自动创建/加入文件夹
-    int m_hoverSourceId = -1;
-    QWidget* m_hoverTargetWidget = nullptr;
-    int m_hoverTargetKind = 0;  // 1=文件夹，2=收藏卡片
-    int m_hoverTargetId = -1;
-    QElapsedTimer m_hoverElapsed;
+    // 拖拽让位排序 / 悬停合并状态
+    QWidget* m_dragWidget = nullptr;        // 正在拖拽的源卡片（隐藏，作占位）
+    int m_dragOriginalIndex = -1;           // 源卡片原始布局索引
+    QWidget* m_mergeTargetWidget = nullptr; // 悬停合并目标（高亮）
 };

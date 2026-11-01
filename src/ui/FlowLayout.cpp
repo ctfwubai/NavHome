@@ -148,3 +148,29 @@ void FlowLayout::removeAllWidgets() {
         }
     }
 }
+
+void FlowLayout::insertWidget(int index, QWidget* w) {
+    // 源卡片通过 addWidget() 加入时已 addChildWidget，这里只调整布局顺序，避免重复登记
+    m_items.insert(index, new QWidgetItem(w));
+    invalidate();
+}
+
+QWidget* FlowLayout::takeWidgetAt(int index) {
+    if (index < 0 || index >= m_items.size()) {
+        return nullptr;
+    }
+    QLayoutItem* item = m_items.takeAt(index);
+    QWidget* w = item ? item->widget() : nullptr;
+    delete item;
+    invalidate();
+    return w;
+}
+
+int FlowLayout::indexOf(const QWidget* w) const {
+    for (int i = 0; i < m_items.size(); ++i) {
+        if (m_items[i]->widget() == w) {
+            return i;
+        }
+    }
+    return -1;
+}

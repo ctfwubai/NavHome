@@ -95,7 +95,7 @@
 "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" setup.iss
 ```
 
-产物为 `installer/NavHome-Setup-2.0.0.exe`，复制到任意机器即可双击安装。
+产物为 `installer/NavHome-Setup-2.2.4.exe`，复制到任意机器即可双击安装。
 
 ## 使用说明
 
