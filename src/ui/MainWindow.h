@@ -4,6 +4,7 @@
 #include <QList>
 #include <QSet>
 #include <QPoint>
+#include <QElapsedTimer>
 
 #include "models/Group.h"
 #include "models/Bookmark.h"
@@ -14,7 +15,6 @@ class QMimeData;
 class QScrollArea;
 class QLabel;
 class QPushButton;
-class QTimer;
 class FlowLayout;
 class IconFetcher;
 
@@ -42,11 +42,13 @@ private slots:
     void onEditBookmark(int id);
     void onDeleteBookmark(int id);
     void onDeleteFolder(int folderId);
+    void onRenameFolder(int folderId);
     void onGroupSelected();
     void onFilterChanged(const QString& text);
     void onOpenUrl(const QString& url);
     void onOpenApp(const QString& command);
     void onOpenSettings();
+    void onShowHelp();
     void onIconFetched(int id, const QString& path);
     void onToggleSelectionMode();
     void onBatchDelete();
@@ -78,8 +80,6 @@ private:
     void addAppFromCommand(const QString& command, const QString& name = QString());
     // 提取 exe 图标并保存为本地 PNG，写回 icon 字段
     void saveAppIcon(int id, const QString& exePath);
-    // 解析 Windows 快捷方式（.lnk）目标命令行；失败返回空
-    QString resolveShortcutTarget(const QString& lnkPath);
     // 处理文件拖放：为每个 .exe/.lnk 生成应用卡片
     void handleAppFileDrop(const QMimeData* mime);
     // 将两个收藏合并为一个文件夹（仅单分组视图）
@@ -125,9 +125,9 @@ private:
     QString m_lastBg;
 
     // 悬浮合并：拖拽卡片在目标上方停留约 0.6 秒后自动创建/加入文件夹
-    QTimer* m_folderHoverTimer = nullptr;
     int m_hoverSourceId = -1;
     QWidget* m_hoverTargetWidget = nullptr;
     int m_hoverTargetKind = 0;  // 1=文件夹，2=收藏卡片
     int m_hoverTargetId = -1;
+    QElapsedTimer m_hoverElapsed;
 };

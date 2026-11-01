@@ -81,6 +81,42 @@ int main(int argc, char* argv[]) {
     CHECK(BackupManager::importData(backupPath, BackupManager::Merge, &err), "合并恢复");
     CHECK(BookmarkRepository::instance().allBookmarks().size() == 2, "合并恢复后收藏数 = 2");
 
+    qInfo() << "== 文件夹备份 / 恢复 ==";
+    {
+        // 基于当前 2 条收藏创建文件夹并收纳，验证 type 与 folder_items 能随备份完整往返
+        const QList<Bookmark> cur = BookmarkRepository::instance().allBookmarks();
+        CHECK(cur.size() >= 2, "前置：至少有 2 条收藏用于建文件夹");
+        const int aId = cur[0].id;
+        const int bId = cur[1].id;
+        const int fid = BookmarkRepository::instance().addFolder(cur[0].groupId, "测试文件夹");
+        BookmarkRepository::instance().addItemToFolder(fid, aId);
+        BookmarkRepository::instance().addItemToFolder(fid, bId);
+        CHECK(BookmarkRepository::instance().folderItems(fid).size() == 2, "文件夹成员 = 2");
+
+        const QString fbPath = "test_folder_backup.json";
+        QFile::remove(fbPath);
+        CHECK(BackupManager::exportData(fbPath, &err), "导出含文件夹的备份");
+
+        BookmarkRepository::instance().deleteFolder(fid);
+        BookmarkRepository::instance().deleteBookmark(aId);
+        BookmarkRepository::instance().deleteBookmark(bId);
+        CHECK(BackupManager::importData(fbPath, BackupManager::Overwrite, &err), "覆盖恢复含文件夹备份");
+
+        int folderCount = 0;
+        int restoredFolderId = -1;
+        const QList<Bookmark> restored = BookmarkRepository::instance().allBookmarks();
+        for (const Bookmark& x : restored) {
+            if (x.type == "folder") {
+                ++folderCount;
+                restoredFolderId = x.id;
+            }
+        }
+        CHECK(folderCount == 1, "恢复后文件夹数量 = 1（type 字段保留）");
+        CHECK(restoredFolderId > 0 &&
+                  BookmarkRepository::instance().folderItems(restoredFolderId).size() == 2,
+              "恢复后文件夹成员 = 2（folder_items 保留）");
+    }
+
     qInfo() << (failures == 0 ? "== 全部通过 ==" : "== 存在失败 ==");
     return failures == 0 ? 0 : 1;
 }

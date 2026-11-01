@@ -11,6 +11,7 @@
 #include <QScrollArea>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QDialog>
 #include <QTimer>
 #include <QFrame>
 #include <QDragEnterEvent>
@@ -177,7 +178,14 @@ void MainWindow::buildUi() {
     m_groupList->installEventFilter(this);
     leftLayout->addWidget(m_groupList, 1);
 
-    // 左下角：关于信息（版本号 + 作者，均为纯文字，灰色）
+    // 左下角：使用说明入口 + 关于信息（版本号 + 作者，均为纯文字，灰色）
+    auto* helpBtn = new QPushButton("❓ 使用说明", leftPanel);
+    helpBtn->setObjectName("iconBtn");
+    helpBtn->setCursor(Qt::PointingHandCursor);
+    helpBtn->setToolTip("查看软件使用方法");
+    connect(helpBtn, &QPushButton::clicked, this, &MainWindow::onShowHelp);
+    leftLayout->addWidget(helpBtn);
+
     auto* aboutLabel = new QLabel(
         QString("关于\n版本 V%1\n作者 无白\nhttps://github.com/ctfwubai")
             .arg(QApplication::applicationVersion()),
@@ -271,12 +279,6 @@ void MainWindow::buildUi() {
     m_gridLayout = new FlowLayout(m_gridContainer, 4, 10, 10);
     m_scrollArea->setWidget(m_gridContainer);
     rightLayout->addWidget(m_scrollArea, 1);
-
-    // 悬浮合并定时器：拖拽卡片在目标上方停留约 0.6 秒后自动创建/加入文件夹
-    m_folderHoverTimer = new QTimer(this);
-    m_folderHoverTimer->setSingleShot(true);
-    m_folderHoverTimer->setInterval(600);
-    connect(m_folderHoverTimer, &QTimer::timeout, this, &MainWindow::commitFolderMerge);
 
     connect(m_toggleSidebarBtn, &QPushButton::clicked, this, [this] {
         const bool visible = m_leftPanel->isVisible();
@@ -594,6 +596,7 @@ void MainWindow::refreshBookmarks() {
             connect(card, &FolderCardWidget::openRequested, this, &MainWindow::onOpenUrl);
             connect(card, &FolderCardWidget::openAppRequested, this, &MainWindow::onOpenApp);
             connect(card, &FolderCardWidget::deleteRequested, this, &MainWindow::onDeleteFolder);
+            connect(card, &FolderCardWidget::renameRequested, this, &MainWindow::onRenameFolder);
             m_gridLayout->addWidget(card);
         } else {
             auto* card = new BookmarkCardWidget(b);
@@ -655,6 +658,55 @@ void MainWindow::ensureBrowserConfigured() {
 }
 
 // —— 槽函数 ——
+
+void MainWindow::onShowHelp() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("使用说明");
+    dlg.setFixedWidth(520);
+
+    auto* layout = new QVBoxLayout(&dlg);
+    layout->setContentsMargins(24, 20, 24, 18);
+    layout->setSpacing(0);
+
+    auto* title = new QLabel("导航之家 · 使用说明", &dlg);
+    title->setStyleSheet("font-size: 15px; font-weight: 700;");
+    layout->addWidget(title);
+    layout->addSpacing(16);
+
+    struct Section {
+        const char* title;
+        const char* text;
+    };
+    const Section sections[] = {
+        {"添加收藏", "点右上角「＋ 添加收藏」输入名称和网址；也可以直接把 .exe / .lnk 文件拖进窗口，自动生成应用卡片。"},
+        {"分组", "左侧点「＋」新增分组；把卡片拖到左侧分组名上即可移动分组。"},
+        {"排序", "按住卡片拖动即可调整顺序。"},
+        {"文件夹", "把一个卡片拖到另一个卡片上并停留约半秒，自动合并成文件夹；双击标题（或点 ✎）重命名，点 ✕ 解散；从文件夹里拖出单个图标即可移出。"},
+        {"多选", "点右上角「☑ 多选」进入批量删除 / 移动。"},
+        {"设置", "点右上角「⚙ 设置」配置浏览器、主题、背景与数据备份恢复。"},
+    };
+
+    for (const Section& s : sections) {
+        layout->addSpacing(12);
+        auto* h = new QLabel(s.title, &dlg);
+        h->setStyleSheet("font-size: 13px; font-weight: 700;");
+        layout->addWidget(h);
+        layout->addSpacing(3);
+        auto* t = new QLabel(s.text, &dlg);
+        t->setWordWrap(true);
+        t->setStyleSheet("font-size: 13px;");
+        layout->addWidget(t);
+    }
+
+    layout->addSpacing(18);
+    auto* closeBtn = new QPushButton("知道了", &dlg);
+    closeBtn->setObjectName("primaryBtn");
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    layout->addWidget(closeBtn, 0, Qt::AlignRight);
+
+    dlg.exec();
+}
 
 void MainWindow::onAddGroup() {
     bool ok = false;
@@ -723,7 +775,7 @@ void MainWindow::onAddBookmark() {
     }
     Bookmark b = dlg.result();
     const int id = BookmarkRepository::instance().addBookmark(b);
-    if (id > 0) {
+    if (id > 0 && !dlg.hasCustomIcon()) {
         m_iconFetcher->fetchForBookmark(id, b.url);
     }
     refreshBookmarks();
@@ -736,7 +788,7 @@ void MainWindow::onAddApp() {
     }
     Bookmark b = dlg.result();
     const int id = BookmarkRepository::instance().addBookmark(b);
-    if (id > 0) {
+    if (id > 0 && !dlg.hasCustomIcon()) {
         saveAppIcon(id, BrowserLauncher::exePathFromCommand(b.url));
     }
     refreshBookmarks();
@@ -758,7 +810,7 @@ void MainWindow::onEditBookmark(int id) {
         Bookmark updated = dlg.result();
         updated.id = id;
         BookmarkRepository::instance().updateBookmark(updated);
-        if (updated.url != oldUrl) {
+        if (updated.url != oldUrl && !dlg.hasCustomIcon()) {
             saveAppIcon(id, BrowserLauncher::exePathFromCommand(updated.url));
         }
     } else {
@@ -770,7 +822,7 @@ void MainWindow::onEditBookmark(int id) {
         Bookmark updated = dlg.result();
         updated.id = id;
         BookmarkRepository::instance().updateBookmark(updated);
-        if (updated.url != oldUrl) {
+        if (updated.url != oldUrl && !dlg.hasCustomIcon()) {
             m_iconFetcher->fetchForBookmark(id, updated.url);
         }
     }
@@ -798,13 +850,28 @@ void MainWindow::onDeleteFolder(int folderId) {
     refreshBookmarks();
 }
 
-void MainWindow::createFolder(int aId, int bId) {
-    // 仅单分组视图支持创建文件夹（“全部”视图跨分组，语义不清）
-    if (currentGroupId() < 0) {
+void MainWindow::onRenameFolder(int folderId) {
+    const Bookmark* folder = findBookmark(folderId);
+    if (!folder) {
         return;
     }
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, "重命名文件夹", "文件夹名称：",
+                                               QLineEdit::Normal, folder->name, &ok);
+    if (ok && !name.trimmed().isEmpty()) {
+        BookmarkRepository::instance().renameFolder(folderId, name.trimmed());
+        refreshBookmarks();
+    }
+}
+
+void MainWindow::createFolder(int aId, int bId) {
     auto& repo = BookmarkRepository::instance();
-    const int fid = repo.addFolder(currentGroupId());
+    // 文件夹归属拖拽源卡片所在分组（“全部”视图下也按源分组归属）
+    const Bookmark* a = findBookmark(aId);
+    if (!a) {
+        return;
+    }
+    const int fid = repo.addFolder(a->groupId);
     if (fid < 0) {
         return;
     }
@@ -814,9 +881,6 @@ void MainWindow::createFolder(int aId, int bId) {
 }
 
 void MainWindow::addToFolder(int folderId, int bookmarkId) {
-    if (currentGroupId() < 0) {
-        return;
-    }
     BookmarkRepository::instance().addItemToFolder(folderId, bookmarkId);
     refreshBookmarks();
 }
@@ -848,13 +912,17 @@ void MainWindow::updateFolderHover(int sourceId, const QPoint& pos) {
         target = nullptr;
     }
 
-    // 目标未变则维持定时器，否则重置
-    if (target == m_hoverTargetWidget && sourceId == m_hoverSourceId) {
+    // 目标未变：累计停留时长，超过阈值则自动合并
+    // （Windows 原生拖放走 OLE 模态循环，QTimer 不触发，故用 DragMove 事件 + 计时）
+    if (target && target == m_hoverTargetWidget && sourceId == m_hoverSourceId) {
+        if (m_hoverElapsed.isValid() && m_hoverElapsed.elapsed() >= 600) {
+            commitFolderMerge();
+        }
         return;
     }
 
     clearFolderHover();
-    if (!target || currentGroupId() < 0) {
+    if (!target) {
         return;
     }
     m_hoverSourceId = sourceId;
@@ -866,11 +934,10 @@ void MainWindow::updateFolderHover(int sourceId, const QPoint& pos) {
     target->setProperty("hoverMerge", true);
     target->style()->unpolish(target);
     target->style()->polish(target);
-    m_folderHoverTimer->start();
+    m_hoverElapsed.start();
 }
 
 void MainWindow::clearFolderHover() {
-    m_folderHoverTimer->stop();
     if (m_hoverTargetWidget) {
         m_hoverTargetWidget->setProperty("hoverMerge", false);
         m_hoverTargetWidget->style()->unpolish(m_hoverTargetWidget);
@@ -880,6 +947,7 @@ void MainWindow::clearFolderHover() {
     m_hoverTargetWidget = nullptr;
     m_hoverTargetKind = 0;
     m_hoverTargetId = -1;
+    m_hoverElapsed.invalidate();
 }
 
 void MainWindow::commitFolderMerge() {
@@ -1181,29 +1249,68 @@ void MainWindow::onGridContextMenu(const QPoint& pos) {
 }
 
 void MainWindow::reorderBookmark(int id, int targetIndex) {
-    // 排序仅在单个分组视图下有意义（“全部”视图跨分组，sort_order 语义不清）
-    if (currentGroupId() < 0) {
-        return;
+    auto& repo = BookmarkRepository::instance();
+    const int gid = currentGroupId();
+
+    // 全局可见收藏（所有分组，排除已收纳进文件夹的成员）—— 与“全部”视图展示一致
+    const QSet<int> members = repo.folderMemberIds();
+    QList<Bookmark> globalVisible;
+    for (const Bookmark& b : repo.bookmarks(-1)) {
+        if (b.type == "folder" || !members.contains(b.id)) {
+            globalVisible.append(b);
+        }
     }
-    int srcIndex = -1;
-    for (int i = 0; i < m_bookmarks.size(); ++i) {
-        if (m_bookmarks[i].id == id) {
-            srcIndex = i;
+
+    int srcGlobal = -1;
+    for (int i = 0; i < globalVisible.size(); ++i) {
+        if (globalVisible[i].id == id) {
+            srcGlobal = i;
             break;
         }
     }
-    if (srcIndex < 0) {
+    if (srcGlobal < 0) {
         return;
     }
-    if (targetIndex > srcIndex) {
-        --targetIndex;  // 移除后索引左移
+
+    // 将视图内目标索引映射为全局索引
+    int dstGlobal;
+    if (gid < 0) {
+        // “全部”视图：目标索引即全局索引
+        dstGlobal = targetIndex;
+    } else {
+        // 单分组视图：目标索引是该分组在全局列表中第 targetIndex 个可见收藏的位置
+        dstGlobal = -1;
+        int cnt = 0;
+        for (int i = 0; i < globalVisible.size(); ++i) {
+            if (globalVisible[i].groupId == gid) {
+                if (cnt == targetIndex) {
+                    dstGlobal = i;
+                    break;
+                }
+                ++cnt;
+            }
+        }
+        if (dstGlobal < 0) {
+            dstGlobal = globalVisible.size();
+            for (int i = globalVisible.size() - 1; i >= 0; --i) {
+                if (globalVisible[i].groupId == gid) {
+                    dstGlobal = i + 1;
+                    break;
+                }
+            }
+        }
     }
-    targetIndex = qBound(0, targetIndex, m_bookmarks.size());
-    Bookmark moved = m_bookmarks.takeAt(srcIndex);
-    m_bookmarks.insert(targetIndex, moved);
-    auto& repo = BookmarkRepository::instance();
-    for (int i = 0; i < m_bookmarks.size(); ++i) {
-        repo.updateBookmarkOrder(m_bookmarks[i].id, i + 1);
+
+    if (dstGlobal > srcGlobal) {
+        --dstGlobal;  // 移除后索引左移
+    }
+    dstGlobal = qBound(0, dstGlobal, globalVisible.size());
+    Bookmark moved = globalVisible.takeAt(srcGlobal);
+    globalVisible.insert(dstGlobal, moved);
+
+    // 全局重排 sort_order（各分组相对顺序不变，仅调整拖拽目标）
+    for (int i = 0; i < globalVisible.size(); ++i) {
+        repo.updateBookmarkOrder(globalVisible[i].id, i + 1);
     }
     refreshBookmarks();
 }
@@ -1219,8 +1326,7 @@ void MainWindow::addAppFromCommand(const QString& command, const QString& name) 
     b.name = name.trimmed();
     if (b.name.isEmpty()) {
         const QString exe = BrowserLauncher::exePathFromCommand(b.url);
-        const QString desc = BrowserLauncher::fileDescription(exe);
-        b.name = desc.isEmpty() ? QFileInfo(exe).completeBaseName() : desc;
+        b.name = BrowserLauncher::friendlyNameForExe(exe);
     }
     const int id = BookmarkRepository::instance().addBookmark(b);
     if (id > 0) {
@@ -1241,8 +1347,9 @@ void MainWindow::handleAppFileDrop(const QMimeData* mime) {
         if (p.endsWith(".exe", Qt::CaseInsensitive)) {
             addAppFromCommand(p);
         } else if (p.endsWith(".lnk", Qt::CaseInsensitive)) {
-            const QString target = resolveShortcutTarget(p);
-            addAppFromCommand(target.isEmpty() ? p : target);
+            const QString target = BrowserLauncher::shortcutTarget(p);
+            // 名字直接用快捷方式文件名（桌面显示的中文名，如“微信”）
+            addAppFromCommand(target.isEmpty() ? p : target, QFileInfo(p).completeBaseName());
         }
     }
 }
@@ -1251,11 +1358,7 @@ void MainWindow::saveAppIcon(int id, const QString& exePath) {
     if (exePath.isEmpty()) {
         return;
     }
-    const QIcon icon = BrowserLauncher::iconForPath(exePath);
-    if (icon.isNull()) {
-        return;
-    }
-    const QPixmap pm = icon.pixmap(48, 48);
+    const QPixmap pm = BrowserLauncher::appIconPixmap(exePath, 48);
     if (pm.isNull()) {
         return;
     }
@@ -1265,41 +1368,6 @@ void MainWindow::saveAppIcon(int id, const QString& exePath) {
     if (pm.save(localPath, "PNG")) {
         BookmarkRepository::instance().updateIcon(id, localPath);
     }
-}
-
-QString MainWindow::resolveShortcutTarget(const QString& lnkPath) {
-#ifdef Q_OS_WIN
-    const HRESULT init = CoInitialize(nullptr);
-    QString result;
-    IShellLinkW* link = nullptr;
-    if (SUCCEEDED(CoCreateInstance(__uuidof(ShellLink), nullptr, CLSCTX_INPROC_SERVER,
-                                   __uuidof(IShellLinkW), reinterpret_cast<void**>(&link)))) {
-        IPersistFile* file = nullptr;
-        if (SUCCEEDED(link->QueryInterface(__uuidof(IPersistFile),
-                                           reinterpret_cast<void**>(&file)))) {
-            if (SUCCEEDED(file->Load(reinterpret_cast<const wchar_t*>(lnkPath.utf16()), STGM_READ))) {
-                wchar_t target[MAX_PATH] = {};
-                wchar_t args[MAX_PATH * 4] = {};
-                if (SUCCEEDED(link->GetPath(target, MAX_PATH, nullptr, 0))) {
-                    QString cmd = QString::fromWCharArray(target);
-                    if (SUCCEEDED(link->GetArguments(args, MAX_PATH * 4)) && args[0] != L'\0') {
-                        cmd += " " + QString::fromWCharArray(args);
-                    }
-                    result = cmd;
-                }
-            }
-            file->Release();
-        }
-        link->Release();
-    }
-    if (SUCCEEDED(init)) {
-        CoUninitialize();
-    }
-    return result;
-#else
-    Q_UNUSED(lnkPath);
-    return QString();
-#endif
 }
 
 void MainWindow::onOpenSettings() {

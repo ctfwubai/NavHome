@@ -168,12 +168,11 @@ QList<Bookmark> BookmarkRepository::search(const QString& keyword) {
 int BookmarkRepository::addBookmark(const Bookmark& bookmark) {
     const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
 
-    // 计算新收藏的排序值（当前分组内最大 sort_order + 1）
+    // 计算新收藏的排序值（全局最大 sort_order + 1，保证“全部”视图排序稳定）
     int nextOrder = 1;
     {
         QSqlQuery maxQ(m_db);
-        maxQ.prepare("SELECT IFNULL(MAX(sort_order), 0) + 1 FROM bookmarks WHERE group_id = :gid");
-        maxQ.bindValue(":gid", bookmark.groupId);
+        maxQ.prepare("SELECT IFNULL(MAX(sort_order), 0) + 1 FROM bookmarks");
         if (maxQ.exec() && maxQ.next()) {
             nextOrder = maxQ.value(0).toInt();
         }
@@ -291,6 +290,15 @@ int BookmarkRepository::addFolder(int groupId, const QString& name) {
     b.type = "folder";
     b.url = QString();
     return addBookmark(b);
+}
+
+bool BookmarkRepository::renameFolder(int folderId, const QString& name) {
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE bookmarks SET name = :name, updated_at = :updated WHERE id = :id");
+    q.bindValue(":name", name);
+    q.bindValue(":updated", QDateTime::currentDateTime().toString(Qt::ISODate));
+    q.bindValue(":id", folderId);
+    return q.exec();
 }
 
 bool BookmarkRepository::deleteFolder(int folderId) {

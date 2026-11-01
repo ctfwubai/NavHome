@@ -38,6 +38,8 @@ public:
     // —— 文件夹 ——
     // 创建文件夹（type=folder 的收藏），返回其 id；name 为空则用默认名
     int addFolder(int groupId, const QString& name = QString());
+    // 重命名文件夹
+    bool renameFolder(int folderId, const QString& name);
     // 解散文件夹：成员回到网格，文件夹本身删除
     bool deleteFolder(int folderId);
     // 将收藏收纳进文件夹

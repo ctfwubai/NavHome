@@ -1,12 +1,15 @@
 #include "BrowserLauncher.h"
 
 #include <QDir>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QProcess>
 #include <QSettings>
 #include <QDesktopServices>
 #include <QFileIconProvider>
+#include <QStandardPaths>
 #include <QUrl>
+#include <QImage>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -14,6 +17,9 @@
 #endif
 #include <windows.h>
 #include <winver.h>
+#include <shellapi.h>
+#include <shobjidl.h>
+#include <objbase.h>
 #endif
 
 namespace {
@@ -33,6 +39,55 @@ const Candidate kCandidates[] = {
     { "360 极速浏览器",    "360chrome.exe", "C:/Program Files (x86)/360/360Chrome/Chrome/Application/360chrome.exe" },
     { "QQ 浏览器",         "QQBrowser.exe", "C:/Program Files (x86)/Tencent/QQBrowser/QQBrowser.exe" },
 };
+
+#ifdef Q_OS_WIN
+// 把 Win32 HICON 转换为 QPixmap（带 alpha，颜色来自图标彩色位图）
+QPixmap pixmapFromHICON(HICON icon) {
+    if (!icon) {
+        return QPixmap();
+    }
+    ICONINFO ii{};
+    if (!GetIconInfo(icon, &ii)) {
+        DestroyIcon(icon);
+        return QPixmap();
+    }
+    BITMAP bm{};
+    if (!ii.hbmColor || !GetObjectW(ii.hbmColor, sizeof(BITMAP), &bm)) {
+        if (ii.hbmColor) DeleteObject(ii.hbmColor);
+        if (ii.hbmMask) DeleteObject(ii.hbmMask);
+        DestroyIcon(icon);
+        return QPixmap();
+    }
+    const int w = bm.bmWidth;
+    const int h = bm.bmHeight;
+
+    HDC hdc = GetDC(nullptr);
+    HDC memDC = CreateCompatibleDC(hdc);
+    HBITMAP oldBmp = static_cast<HBITMAP>(SelectObject(memDC, ii.hbmColor));
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h;  // 自顶向下，QImage 直接可用
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    QImage img(w, h, QImage::Format_ARGB32);
+    if (!img.isNull()) {
+        GetDIBits(memDC, ii.hbmColor, 0, static_cast<UINT>(h), img.bits(), &bmi, DIB_RGB_COLORS);
+    }
+
+    SelectObject(memDC, oldBmp);
+    DeleteDC(memDC);
+    ReleaseDC(nullptr, hdc);
+    DeleteObject(ii.hbmColor);
+    DeleteObject(ii.hbmMask);
+    DestroyIcon(icon);
+
+    return img.isNull() ? QPixmap() : QPixmap::fromImage(img);
+}
+#endif
 
 } // namespace
 
@@ -102,6 +157,12 @@ bool BrowserLauncher::openApp(const QString& command) {
     // 快捷方式（.lnk）：直接交给系统 Shell 打开，保留原始参数/工作目录
     if (trimmed.endsWith(".lnk", Qt::CaseInsensitive)) {
         return QDesktopServices::openUrl(QUrl::fromLocalFile(trimmed));
+    }
+
+    // 纯文件路径（无参数，含空格）直接启动，避免 splitCommand 误拆分
+    if (QFileInfo::exists(trimmed)) {
+        return QProcess::startDetached(trimmed, QStringList(),
+                                       QFileInfo(trimmed).absolutePath());
     }
 
     const QStringList parts = QProcess::splitCommand(trimmed);
@@ -174,6 +235,114 @@ QString BrowserLauncher::fileDescription(const QString& path) {
     Q_UNUSED(path);
     return QString();
 #endif
+}
+
+QString BrowserLauncher::shortcutTarget(const QString& lnkPath) {
+#ifdef Q_OS_WIN
+    const HRESULT init = CoInitialize(nullptr);
+    QString result;
+    IShellLinkW* link = nullptr;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(ShellLink), nullptr, CLSCTX_INPROC_SERVER,
+                                   __uuidof(IShellLinkW), reinterpret_cast<void**>(&link)))) {
+        IPersistFile* file = nullptr;
+        if (SUCCEEDED(link->QueryInterface(__uuidof(IPersistFile),
+                                           reinterpret_cast<void**>(&file)))) {
+            if (SUCCEEDED(file->Load(reinterpret_cast<const wchar_t*>(lnkPath.utf16()), STGM_READ))) {
+                wchar_t target[MAX_PATH] = {};
+                wchar_t args[MAX_PATH * 4] = {};
+                if (SUCCEEDED(link->GetPath(target, MAX_PATH, nullptr, 0))) {
+                    QString cmd = QString::fromWCharArray(target);
+                    if (SUCCEEDED(link->GetArguments(args, MAX_PATH * 4)) && args[0] != L'\0') {
+                        cmd += " " + QString::fromWCharArray(args);
+                    }
+                    result = cmd;
+                }
+            }
+            file->Release();
+        }
+        link->Release();
+    }
+    if (SUCCEEDED(init)) {
+        CoUninitialize();
+    }
+    return result;
+#else
+    Q_UNUSED(lnkPath);
+    return QString();
+#endif
+}
+
+QString BrowserLauncher::findShortcutName(const QString& exePath) {
+    const QString target = QFileInfo(exePath).canonicalFilePath().toLower();
+    if (target.isEmpty()) {
+        return QString();
+    }
+
+    QStringList roots;
+    roots << QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    roots << QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
+    roots << "C:/Users/Public/Desktop";
+    roots << "C:/ProgramData/Microsoft/Windows/Start Menu/Programs";
+
+    for (const QString& root : roots) {
+        if (root.isEmpty()) {
+            continue;
+        }
+        QDirIterator it(root, QStringList{"*.lnk"}, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString lnk = it.next();
+            const QString tgt = shortcutTarget(lnk);
+            if (tgt.isEmpty()) {
+                continue;
+            }
+            const QString exe = exePathFromCommand(tgt);
+            if (exe.isEmpty()) {
+                continue;
+            }
+            if (QFileInfo(exe).canonicalFilePath().toLower() == target) {
+                return QFileInfo(lnk).completeBaseName();
+            }
+        }
+    }
+    return QString();
+}
+
+QString BrowserLauncher::friendlyNameForExe(const QString& exePath) {
+    if (exePath.isEmpty()) {
+        return QString();
+    }
+    // 优先桌面/开始菜单快捷方式的中文显示名（如“微信”）
+    const QString lnkName = findShortcutName(exePath);
+    if (!lnkName.isEmpty()) {
+        return lnkName;
+    }
+    // 其次 exe 版本信息 FileDescription（如 “BarTender Designer”）
+    const QString desc = fileDescription(exePath);
+    if (!desc.isEmpty()) {
+        return desc;
+    }
+    // 最后文件名兜底
+    return QFileInfo(exePath).completeBaseName();
+}
+
+QPixmap BrowserLauncher::appIconPixmap(const QString& exePath, int size) {
+#ifdef Q_OS_WIN
+    if (!exePath.isEmpty() && QFileInfo::exists(exePath)) {
+        const QString native = QDir::toNativeSeparators(exePath);
+        SHFILEINFOW sfi{};
+        if (SHGetFileInfoW(reinterpret_cast<const wchar_t*>(native.utf16()), 0, &sfi, sizeof(sfi),
+                           SHGFI_ICON | SHGFI_LARGEICON)) {
+            const QPixmap pm = pixmapFromHICON(sfi.hIcon);
+            if (!pm.isNull()) {
+                return pm;
+            }
+        }
+    }
+#endif
+    // 回退：QFileIconProvider（Win32 提取失败时）
+    QFileIconProvider provider;
+    const QIcon icon = provider.icon(QFileInfo(exePath));
+    return icon.pixmap(size, size);
 }
 
 QString BrowserLauncher::ensureScheme(const QString& url) {

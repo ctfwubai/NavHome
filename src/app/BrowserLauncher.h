@@ -2,6 +2,7 @@
 
 #include <QIcon>
 #include <QList>
+#include <QPixmap>
 #include <QString>
 
 // 浏览器信息
@@ -35,10 +36,22 @@ public:
     // 读取 exe 版本信息中的 FileDescription（如 "BarTender Designer"）；失败返回空
     static QString fileDescription(const QString& path);
 
+    // 解析 .lnk 快捷方式的目标命令行（含参数）；失败返回空
+    static QString shortcutTarget(const QString& lnkPath);
+
+    // 取应用的友好显示名：优先桌面/开始菜单快捷方式的中文名，其次 FileDescription，最后文件名
+    static QString friendlyNameForExe(const QString& exePath);
+
+    // 提取应用图标（Windows Shell 大图标，比 QFileIconProvider 更可靠）；失败返回空
+    static QPixmap appIconPixmap(const QString& exePath, int size);
+
     // 补全网址协议（缺少 scheme 时补 https://）
     static QString ensureScheme(const QString& url);
 
 private:
     // 查询注册表 App Paths 中某可执行文件的实际路径
     static QString appPathFromRegistry(const QString& exeName);
+
+    // 在常见快捷方式位置查找指向该 exe 的 .lnk 文件名（去扩展名）
+    static QString findShortcutName(const QString& exePath);
 };

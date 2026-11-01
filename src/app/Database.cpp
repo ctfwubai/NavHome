@@ -3,6 +3,7 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDebug>
+#include <QList>
 
 namespace {
 // 数据库连接名（本程序全局唯一）
@@ -138,6 +139,29 @@ void Database::migrate() {
         QSqlQuery q(m_db);
         if (!q.exec("ALTER TABLE bookmarks ADD COLUMN type TEXT NOT NULL DEFAULT 'url'")) {
             qWarning() << "迁移 bookmarks.type 失败:" << q.lastError().text();
+        }
+    }
+
+    // 全局化 sort_order：老版本 sort_order 为分组内独立值（跨分组重复），
+    // 导致“全部”视图排序混乱；改为全局唯一后“全部”视图拖拽排序才正确。
+    {
+        QSqlQuery dup(m_db);
+        dup.exec("SELECT COUNT(*) FROM (SELECT sort_order, COUNT(*) c FROM bookmarks "
+                 "GROUP BY sort_order HAVING c > 1)");
+        if (dup.next() && dup.value(0).toInt() > 0) {
+            QSqlQuery sel(m_db);
+            sel.exec("SELECT id FROM bookmarks ORDER BY group_id ASC, sort_order ASC, id ASC");
+            QList<int> ids;
+            while (sel.next()) {
+                ids.append(sel.value(0).toInt());
+            }
+            QSqlQuery upd(m_db);
+            upd.prepare("UPDATE bookmarks SET sort_order = :o WHERE id = :id");
+            for (int i = 0; i < ids.size(); ++i) {
+                upd.bindValue(":o", i + 1);
+                upd.bindValue(":id", ids[i]);
+                upd.exec();
+            }
         }
     }
 }

@@ -2,7 +2,7 @@
 ; 要求：所有用户可用（含 AD 域普通用户）、默认安装到 D 盘、重装后可重新导入恢复
 
 #define MyAppName "导航之家"
-#define MyAppVersion "2.1.0"
+#define MyAppVersion "2.2.2"
 #define MyAppPublisher "NavHome"
 #define MyAppExeName "NavHome.exe"
 
