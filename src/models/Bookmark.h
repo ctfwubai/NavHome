@@ -9,6 +9,8 @@ struct Bookmark {
     QString name;          // 名称
     QString url;           // 网址（type=url 时为网址；type=app 时为程序路径/命令行）
     QString icon;          // 图标：本地文件路径或空（使用占位图标）
+    QString username;      // 账号（明文，内存中；数据库明文存储）
+    QString password;      // 密码（明文，内存中；数据库经 DPAPI 加密存储）
     QString type = "url";  // 类型：url=网页收藏，app=应用程序
     int sortOrder = 0;     // 排序值
     QString createdAt;     // 创建时间（ISO 格式）

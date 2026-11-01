@@ -6,6 +6,8 @@
 #include <QDebug>
 #include <QVariant>
 
+#include "app/Crypto.h"
+
 namespace {
 
 // 将查询结果当前行解析为 Group
@@ -25,6 +27,8 @@ Bookmark bookmarkFromQuery(const QSqlQuery& q) {
     b.name = q.value("name").toString();
     b.url = q.value("url").toString();
     b.icon = q.value("icon").toString();
+    b.username = q.value("username").toString();
+    b.password = Crypto::decrypt(q.value("password").toString());
     b.type = q.value("type").toString().isEmpty() ? "url" : q.value("type").toString();
     b.sortOrder = q.value("sort_order").toInt();
     b.createdAt = q.value("created_at").toString();
@@ -179,12 +183,14 @@ int BookmarkRepository::addBookmark(const Bookmark& bookmark) {
     }
 
     QSqlQuery q(m_db);
-    q.prepare("INSERT INTO bookmarks (group_id, name, url, icon, type, sort_order, created_at, updated_at) "
-              "VALUES (:gid, :name, :url, :icon, :type, :sort, :created, :updated)");
+    q.prepare("INSERT INTO bookmarks (group_id, name, url, icon, username, password, type, sort_order, created_at, updated_at) "
+              "VALUES (:gid, :name, :url, :icon, :username, :password, :type, :sort, :created, :updated)");
     q.bindValue(":gid", bookmark.groupId);
     q.bindValue(":name", nz(bookmark.name));
     q.bindValue(":url", nz(bookmark.url));
     q.bindValue(":icon", nz(bookmark.icon));
+    q.bindValue(":username", nz(bookmark.username));
+    q.bindValue(":password", Crypto::encrypt(bookmark.password));
     q.bindValue(":type", nz(bookmark.type).isEmpty() ? "url" : nz(bookmark.type));
     q.bindValue(":sort", nextOrder);
     q.bindValue(":created", now);
@@ -200,11 +206,13 @@ bool BookmarkRepository::updateBookmark(const Bookmark& bookmark) {
     const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
     QSqlQuery q(m_db);
     q.prepare("UPDATE bookmarks SET group_id = :gid, name = :name, url = :url, icon = :icon, "
-              "type = :type, updated_at = :updated WHERE id = :id");
+              "username = :username, password = :password, type = :type, updated_at = :updated WHERE id = :id");
     q.bindValue(":gid", bookmark.groupId);
     q.bindValue(":name", nz(bookmark.name));
     q.bindValue(":url", nz(bookmark.url));
     q.bindValue(":icon", nz(bookmark.icon));
+    q.bindValue(":username", nz(bookmark.username));
+    q.bindValue(":password", Crypto::encrypt(bookmark.password));
     q.bindValue(":type", nz(bookmark.type).isEmpty() ? "url" : nz(bookmark.type));
     q.bindValue(":updated", now);
     q.bindValue(":id", bookmark.id);

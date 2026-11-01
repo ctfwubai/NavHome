@@ -11,6 +11,7 @@ inline constexpr const char* kBookmarkMime = "application/x-navhome-bookmark";
 class QLabel;
 class QToolButton;
 class QDrag;
+class QContextMenuEvent;
 
 // 收藏卡片：图标 + 名称 + 网址，点击打开，悬停显示操作（对应需求 3.6）
 class BookmarkCardWidget : public QFrame {
@@ -41,6 +42,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void enterEvent(QEnterEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
 private:
     void buildUi();

@@ -2,7 +2,7 @@
 ; 要求：所有用户可用（含 AD 域普通用户）、默认安装到 D 盘、重装后可重新导入恢复
 
 #define MyAppName "导航之家"
-#define MyAppVersion "2.2.2"
+#define MyAppVersion "2.3.0"
 #define MyAppPublisher "NavHome"
 #define MyAppExeName "NavHome.exe"
 
@@ -23,7 +23,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=.
-OutputBaseFilename=NavHome-Setup-{#MyAppVersion}
+OutputBaseFilename=NavHome-Setup-{#MyAppVersion}-20261101
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

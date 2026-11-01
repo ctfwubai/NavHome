@@ -163,7 +163,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("NavHome");
     QApplication::setApplicationDisplayName("导航之家");
-    QApplication::setApplicationVersion("2.2.2");
+    QApplication::setApplicationVersion("2.3.0");
     QApplication::setOrganizationName("NavHome");
 
     // 数据目录：程序目录可写则便携（数据随程序），否则回退到用户数据目录

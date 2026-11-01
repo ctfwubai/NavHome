@@ -11,6 +11,9 @@
 #include <QDrag>
 #include <QMimeData>
 #include <QApplication>
+#include <QMenu>
+#include <QContextMenuEvent>
+#include <QClipboard>
 
 #include "app/AppConfig.h"
 
@@ -41,8 +44,6 @@ BookmarkCardWidget::BookmarkCardWidget(const Bookmark& bookmark, QWidget* parent
     setFixedSize(kCardWidth, kCardHeight);
     setObjectName("bookmarkCard");
     setCursor(Qt::PointingHandCursor);
-    // 右键不响应（空白区域右键由主窗口处理“添加收藏”）
-    setContextMenuPolicy(Qt::PreventContextMenu);
     buildUi();
     updateIcon();
 }
@@ -194,6 +195,31 @@ void BookmarkCardWidget::leaveEvent(QEvent* event) {
         m_actions->hide();
     }
     QFrame::leaveEvent(event);
+}
+
+void BookmarkCardWidget::contextMenuEvent(QContextMenuEvent* event) {
+    QMenu menu(this);
+    // 记录过账号密码时才提供一键复制
+    if (!m_bookmark.username.isEmpty()) {
+        QAction* copyUser = menu.addAction("复制账号");
+        connect(copyUser, &QAction::triggered, this, [this] {
+            QApplication::clipboard()->setText(m_bookmark.username);
+        });
+    }
+    if (!m_bookmark.password.isEmpty()) {
+        QAction* copyPwd = menu.addAction("复制密码");
+        connect(copyPwd, &QAction::triggered, this, [this] {
+            QApplication::clipboard()->setText(m_bookmark.password);
+        });
+    }
+    if (!menu.actions().isEmpty()) {
+        menu.addSeparator();
+    }
+    QAction* editAct = menu.addAction("编辑");
+    QAction* delAct = menu.addAction("删除");
+    connect(editAct, &QAction::triggered, this, [this] { emit editRequested(m_bookmark.id); });
+    connect(delAct, &QAction::triggered, this, [this] { emit deleteRequested(m_bookmark.id); });
+    menu.exec(event->globalPos());
 }
 
 void BookmarkCardWidget::setSelected(bool selected) {
