@@ -14,6 +14,7 @@ class QMimeData;
 class QScrollArea;
 class QLabel;
 class QPushButton;
+class QTimer;
 class FlowLayout;
 class IconFetcher;
 
@@ -85,6 +86,10 @@ private:
     void createFolder(int aId, int bId);
     // 将收藏收纳进已有文件夹
     void addToFolder(int folderId, int bookmarkId);
+    // 拖拽悬浮检测：在卡片/文件夹上方停留一段时间后自动合并
+    void updateFolderHover(int sourceId, const QPoint& pos);
+    void clearFolderHover();
+    void commitFolderMerge();
 
     QList<Group> m_groups;
     QList<Bookmark> m_bookmarks;   // 当前视图展示的收藏
@@ -118,4 +123,11 @@ private:
     bool m_styleInited = false;
     bool m_lastDark = false;
     QString m_lastBg;
+
+    // 悬浮合并：拖拽卡片在目标上方停留约 0.6 秒后自动创建/加入文件夹
+    QTimer* m_folderHoverTimer = nullptr;
+    int m_hoverSourceId = -1;
+    QWidget* m_hoverTargetWidget = nullptr;
+    int m_hoverTargetKind = 0;  // 1=文件夹，2=收藏卡片
+    int m_hoverTargetId = -1;
 };

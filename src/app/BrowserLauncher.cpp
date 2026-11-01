@@ -8,6 +8,14 @@
 #include <QFileIconProvider>
 #include <QUrl>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <winver.h>
+#endif
+
 namespace {
 
 // 常见浏览器候选表：注册表 App Paths 键名 + 常见安装路径兜底
@@ -110,11 +118,62 @@ bool BrowserLauncher::openApp(const QString& command) {
 }
 
 QString BrowserLauncher::exePathFromCommand(const QString& command) {
-    const QStringList parts = QProcess::splitCommand(command.trimmed());
+    const QString trimmed = command.trimmed();
+    // 纯文件路径（无参数）直接返回，避免含空格路径被 splitCommand 误拆分
+    if (QFileInfo::exists(trimmed)) {
+        return trimmed;
+    }
+    const QStringList parts = QProcess::splitCommand(trimmed);
     if (parts.isEmpty()) {
         return QString();
     }
     return parts.first();
+}
+
+QString BrowserLauncher::fileDescription(const QString& path) {
+#ifdef Q_OS_WIN
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        return QString();
+    }
+    const QString native = QDir::toNativeSeparators(path);
+    DWORD handle = 0;
+    const DWORD size = GetFileVersionInfoSizeW(
+        reinterpret_cast<const wchar_t*>(native.utf16()), &handle);
+    if (size == 0) {
+        return QString();
+    }
+    QByteArray buffer(static_cast<int>(size), 0);
+    if (!GetFileVersionInfoW(reinterpret_cast<const wchar_t*>(native.utf16()),
+                             handle, size, buffer.data())) {
+        return QString();
+    }
+
+    struct LANGANDCODEPAGE {
+        WORD wLanguage;
+        WORD wCodePage;
+    }* translate = nullptr;
+    UINT transLen = 0;
+    if (!VerQueryValueW(buffer.data(), L"\\VarFileInfo\\Translation",
+                        reinterpret_cast<void**>(&translate), &transLen) || !transLen) {
+        return QString();
+    }
+
+    const QString langHex = QString::number(translate->wLanguage, 16).rightJustified(4, '0');
+    const QString pageHex = QString::number(translate->wCodePage, 16).rightJustified(4, '0');
+    const QString subBlock =
+        QString("\\StringFileInfo\\%1%2\\FileDescription").arg(langHex, pageHex);
+
+    wchar_t* value = nullptr;
+    UINT valueLen = 0;
+    if (VerQueryValueW(buffer.data(), reinterpret_cast<const wchar_t*>(subBlock.utf16()),
+                       reinterpret_cast<void**>(&value), &valueLen) && value) {
+        return QString::fromWCharArray(value);
+    }
+    return QString();
+#else
+    Q_UNUSED(path);
+    return QString();
+#endif
 }
 
 QString BrowserLauncher::ensureScheme(const QString& url) {

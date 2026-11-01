@@ -272,6 +272,12 @@ void MainWindow::buildUi() {
     m_scrollArea->setWidget(m_gridContainer);
     rightLayout->addWidget(m_scrollArea, 1);
 
+    // 悬浮合并定时器：拖拽卡片在目标上方停留约 0.6 秒后自动创建/加入文件夹
+    m_folderHoverTimer = new QTimer(this);
+    m_folderHoverTimer->setSingleShot(true);
+    m_folderHoverTimer->setInterval(600);
+    connect(m_folderHoverTimer, &QTimer::timeout, this, &MainWindow::commitFolderMerge);
+
     connect(m_toggleSidebarBtn, &QPushButton::clicked, this, [this] {
         const bool visible = m_leftPanel->isVisible();
         m_leftPanel->setVisible(!visible);
@@ -458,6 +464,7 @@ QString MainWindow::themeStylesheet(bool dark, const QString& leftPanelBg) {
             QFrame#bookmarkCard:hover { border-color: #4a5d8f; background: #262b32; }
             QFrame#folderCard { background: rgba(255,255,255,0.06); border: 1px dashed #4a5d8f; border-radius: 14px; }
             QFrame#folderCard:hover { border-color: #6b8bff; background: rgba(255,255,255,0.10); }
+            QFrame#bookmarkCard[hoverMerge="true"], QFrame#folderCard[hoverMerge="true"] { border-color: #4a9eff; background: rgba(74,158,255,0.18); }
             QWidget#batchBar { background: #3a2f26; border: 1px solid #5a4030; border-radius: 10px; }
             QLabel#cardName { font-weight: 600; font-size: 14px; color: #e6eaf0; }
             QLabel#cardUrl { font-size: 11px; color: #8a94a6; }
@@ -515,6 +522,7 @@ QString MainWindow::themeStylesheet(bool dark, const QString& leftPanelBg) {
         QFrame#bookmarkCard:hover { border-color: #b9c8f2; background: #fdfdff; }
         QFrame#folderCard { background: rgba(255,255,255,0.35); border: 1px dashed #b9c8f2; border-radius: 14px; }
         QFrame#folderCard:hover { border-color: #4a6cf7; background: rgba(255,255,255,0.55); }
+        QFrame#bookmarkCard[hoverMerge="true"], QFrame#folderCard[hoverMerge="true"] { border-color: #4a6cf7; background: rgba(74,108,247,0.14); }
         QWidget#batchBar { background: #fff3ec; border: 1px solid #ffd8c0; border-radius: 10px; }
         QLabel#cardName { font-weight: 600; font-size: 14px; color: #2b3040; }
         QLabel#cardUrl { font-size: 11px; color: #98a1b3; }
@@ -813,6 +821,91 @@ void MainWindow::addToFolder(int folderId, int bookmarkId) {
     refreshBookmarks();
 }
 
+void MainWindow::updateFolderHover(int sourceId, const QPoint& pos) {
+    // 找出鼠标当前悬停的卡片/文件夹
+    QWidget* target = nullptr;
+    for (int i = 0; i < m_gridLayout->count(); ++i) {
+        QWidget* w = m_gridLayout->itemAt(i)->widget();
+        if (w && w->geometry().contains(pos)) {
+            target = w;
+            break;
+        }
+    }
+
+    int kind = 0;
+    int targetId = -1;
+    if (auto* folder = qobject_cast<FolderCardWidget*>(target)) {
+        kind = 1;
+        targetId = folder->folderId();
+    } else if (auto* card = qobject_cast<BookmarkCardWidget*>(target)) {
+        if (card->bookmarkId() != sourceId) {
+            kind = 2;
+            targetId = card->bookmarkId();
+        } else {
+            target = nullptr;  // 悬停在源卡片自身，不触发
+        }
+    } else {
+        target = nullptr;
+    }
+
+    // 目标未变则维持定时器，否则重置
+    if (target == m_hoverTargetWidget && sourceId == m_hoverSourceId) {
+        return;
+    }
+
+    clearFolderHover();
+    if (!target || currentGroupId() < 0) {
+        return;
+    }
+    m_hoverSourceId = sourceId;
+    m_hoverTargetWidget = target;
+    m_hoverTargetKind = kind;
+    m_hoverTargetId = targetId;
+
+    // 视觉反馈：高亮即将合并的目标卡片
+    target->setProperty("hoverMerge", true);
+    target->style()->unpolish(target);
+    target->style()->polish(target);
+    m_folderHoverTimer->start();
+}
+
+void MainWindow::clearFolderHover() {
+    m_folderHoverTimer->stop();
+    if (m_hoverTargetWidget) {
+        m_hoverTargetWidget->setProperty("hoverMerge", false);
+        m_hoverTargetWidget->style()->unpolish(m_hoverTargetWidget);
+        m_hoverTargetWidget->style()->polish(m_hoverTargetWidget);
+    }
+    m_hoverSourceId = -1;
+    m_hoverTargetWidget = nullptr;
+    m_hoverTargetKind = 0;
+    m_hoverTargetId = -1;
+}
+
+void MainWindow::commitFolderMerge() {
+    const int sourceId = m_hoverSourceId;
+    const int kind = m_hoverTargetKind;
+    const int targetId = m_hoverTargetId;
+    clearFolderHover();
+
+    // 取消源卡片的拖拽，让 drag 循环退出
+    for (int i = 0; i < m_gridLayout->count(); ++i) {
+        auto* card = qobject_cast<BookmarkCardWidget*>(m_gridLayout->itemAt(i)->widget());
+        if (card && card->bookmarkId() == sourceId) {
+            card->cancelDrag();
+            break;
+        }
+    }
+    // 等拖拽循环彻底结束后再合并，避免删除仍在拖拽中的卡片
+    QTimer::singleShot(0, this, [this, sourceId, kind, targetId] {
+        if (kind == 1) {
+            addToFolder(targetId, sourceId);
+        } else if (kind == 2) {
+            createFolder(sourceId, targetId);
+        }
+    });
+}
+
 void MainWindow::onGroupSelected() {
     refreshBookmarks();
 }
@@ -866,10 +959,19 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                 e->mimeData()->hasFormat(kFolderItemMime) ||
                 hasAppFile(e->mimeData())) {
                 e->acceptProposedAction();
+                if (event->type() == QEvent::DragMove &&
+                    e->mimeData()->hasFormat(kBookmarkMime)) {
+                    // 悬浮检测：拖拽卡片在目标上方停留自动合并
+                    updateFolderHover(e->mimeData()->data(kBookmarkMime).toInt(),
+                                      e->position().toPoint());
+                }
                 return true;
             }
+        } else if (event->type() == QEvent::DragLeave) {
+            clearFolderHover();
         } else if (event->type() == QEvent::Drop) {
             auto* e = static_cast<QDropEvent*>(event);
+            clearFolderHover();
             if (e->mimeData()->hasFormat(kBookmarkMime)) {
                 const int id = e->mimeData()->data(kBookmarkMime).toInt();
                 const QPoint pos = e->position().toPoint();
@@ -1116,7 +1218,9 @@ void MainWindow::addAppFromCommand(const QString& command, const QString& name) 
     b.url = command.trimmed();
     b.name = name.trimmed();
     if (b.name.isEmpty()) {
-        b.name = QFileInfo(BrowserLauncher::exePathFromCommand(b.url)).completeBaseName();
+        const QString exe = BrowserLauncher::exePathFromCommand(b.url);
+        const QString desc = BrowserLauncher::fileDescription(exe);
+        b.name = desc.isEmpty() ? QFileInfo(exe).completeBaseName() : desc;
     }
     const int id = BookmarkRepository::instance().addBookmark(b);
     if (id > 0) {

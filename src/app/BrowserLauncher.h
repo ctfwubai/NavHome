@@ -32,6 +32,9 @@ public:
     // 从命令行提取可执行文件路径（用于提取 exe 图标）
     static QString exePathFromCommand(const QString& command);
 
+    // 读取 exe 版本信息中的 FileDescription（如 "BarTender Designer"）；失败返回空
+    static QString fileDescription(const QString& path);
+
     // 补全网址协议（缺少 scheme 时补 https://）
     static QString ensureScheme(const QString& url);
 

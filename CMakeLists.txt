@@ -64,8 +64,8 @@ if(WIN32)
         COPYONLY
     )
     target_sources(NavHome PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.rc")
-    # 标题栏深色模式（DwmSetWindowAttribute）+ 快捷方式解析（IShellLink COM）
-    target_link_libraries(NavHome PRIVATE dwmapi ole32 uuid)
+    # 标题栏深色模式（DwmSetWindowAttribute）+ 快捷方式解析（IShellLink COM）+ exe 版本信息
+    target_link_libraries(NavHome PRIVATE dwmapi ole32 uuid version)
 endif()
 
 # —— 数据层测试（可选，-DNAVHOME_BUILD_TESTS=ON 时构建）——

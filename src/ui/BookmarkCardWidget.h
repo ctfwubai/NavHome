@@ -10,6 +10,7 @@ inline constexpr const char* kBookmarkMime = "application/x-navhome-bookmark";
 
 class QLabel;
 class QToolButton;
+class QDrag;
 
 // 收藏卡片：图标 + 名称 + 网址，点击打开，悬停显示操作（对应需求 3.6）
 class BookmarkCardWidget : public QFrame {
@@ -23,6 +24,9 @@ public:
     bool isSelected() const { return m_selected; }
     void setSelected(bool selected);
     void setSelectionMode(bool enabled);
+
+    // 由主窗口在“悬浮合并”触发时调用，结束进行中的拖拽
+    void cancelDrag();
 
 signals:
     void openRequested(const QString& url);
@@ -51,4 +55,5 @@ private:
     QLabel* m_nameLabel = nullptr;
     QLabel* m_urlLabel = nullptr;
     QWidget* m_actions = nullptr;
+    QDrag* m_drag = nullptr;  // 进行中的拖拽对象，供主窗口取消
 };

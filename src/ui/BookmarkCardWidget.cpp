@@ -157,7 +157,15 @@ void BookmarkCardWidget::mouseMoveEvent(QMouseEvent* event) {
     drag->setMimeData(mime);
     drag->setPixmap(grab());          // 拖拽时跟随显示卡片缩略图
     drag->setHotSpot(event->pos());
+    m_drag = drag;
     drag->exec(Qt::MoveAction);
+    m_drag = nullptr;
+}
+
+void BookmarkCardWidget::cancelDrag() {
+    if (m_drag) {
+        m_drag->cancel();
+    }
 }
 
 void BookmarkCardWidget::mouseReleaseEvent(QMouseEvent* event) {

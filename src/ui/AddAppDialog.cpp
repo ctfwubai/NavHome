@@ -102,7 +102,8 @@ Bookmark AddAppDialog::result() const {
     b.name = m_nameEdit->text().trimmed();
     if (b.name.isEmpty()) {
         const QString exe = BrowserLauncher::exePathFromCommand(b.url);
-        b.name = QFileInfo(exe).completeBaseName();
+        const QString desc = BrowserLauncher::fileDescription(exe);
+        b.name = desc.isEmpty() ? QFileInfo(exe).completeBaseName() : desc;
     }
     b.groupId = m_groupCombo->currentData().toInt();
     return b;
