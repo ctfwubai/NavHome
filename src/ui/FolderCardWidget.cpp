@@ -69,6 +69,8 @@ void FolderCardWidget::buildUi() {
         btn->setIconSize(QSize(30, 30));
         btn->setCursor(Qt::PointingHandCursor);
         btn->setToolTip(b.url.isEmpty() ? b.name : b.name + "\n" + b.url);
+        btn->setProperty("bookmarkId", b.id);
+        btn->installEventFilter(this);
 
         bool hasIcon = false;
         if (!b.icon.isEmpty() && QFileInfo::exists(b.icon)) {
@@ -138,4 +140,32 @@ void FolderCardWidget::leaveEvent(QEvent* event) {
         m_actions->hide();
     }
     QFrame::leaveEvent(event);
+}
+
+bool FolderCardWidget::eventFilter(QObject* obj, QEvent* event) {
+    auto* btn = qobject_cast<QToolButton*>(obj);
+    if (btn && btn->parent() == this && btn->property("bookmarkId").isValid()) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                m_itemDragStart = me->pos();
+            }
+        } else if (event->type() == QEvent::MouseMove) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if ((me->buttons() & Qt::LeftButton) &&
+                (me->pos() - m_itemDragStart).manhattanLength() >= QApplication::startDragDistance()) {
+                const int bookmarkId = btn->property("bookmarkId").toInt();
+                auto* mime = new QMimeData;
+                mime->setData(kFolderItemMime,
+                              QString("%1,%2").arg(m_folder.id).arg(bookmarkId).toUtf8());
+                auto* drag = new QDrag(btn);
+                drag->setMimeData(mime);
+                drag->setPixmap(btn->grab());
+                drag->setHotSpot(me->pos());
+                drag->exec(Qt::MoveAction);
+                return true;  // 拖出文件夹：事件已处理，阻止按钮触发点击
+            }
+        }
+    }
+    return QFrame::eventFilter(obj, event);
 }

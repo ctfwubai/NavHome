@@ -863,6 +863,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
             auto* e = static_cast<QDragMoveEvent*>(event);
             if (e->mimeData()->hasFormat(kBookmarkMime) ||
                 e->mimeData()->hasFormat(kFolderMime) ||
+                e->mimeData()->hasFormat(kFolderItemMime) ||
                 hasAppFile(e->mimeData())) {
                 e->acceptProposedAction();
                 return true;
@@ -929,6 +930,23 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
                     }
                 }
                 reorderBookmark(id, targetIndex);
+                e->acceptProposedAction();
+                return true;
+            }
+            if (e->mimeData()->hasFormat(kFolderItemMime)) {
+                const QString data = QString::fromUtf8(e->mimeData()->data(kFolderItemMime));
+                const QStringList parts = data.split(',');
+                if (parts.size() == 2) {
+                    const int folderId = parts[0].toInt();
+                    const int bookmarkId = parts[1].toInt();
+                    auto& repo = BookmarkRepository::instance();
+                    repo.removeItemFromFolder(folderId, bookmarkId);
+                    // 文件夹空了则自动解散，成员回到分组
+                    if (repo.folderItems(folderId).isEmpty()) {
+                        repo.deleteFolder(folderId);
+                    }
+                    refreshBookmarks();
+                }
                 e->acceptProposedAction();
                 return true;
             }
