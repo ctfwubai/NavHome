@@ -190,7 +190,7 @@ int BookmarkRepository::addBookmark(const Bookmark& bookmark) {
     q.bindValue(":url", nz(bookmark.url));
     q.bindValue(":icon", nz(bookmark.icon));
     q.bindValue(":username", nz(bookmark.username));
-    q.bindValue(":password", Crypto::encrypt(bookmark.password));
+    q.bindValue(":password", nz(Crypto::encrypt(bookmark.password)));
     q.bindValue(":type", nz(bookmark.type).isEmpty() ? "url" : nz(bookmark.type));
     q.bindValue(":sort", nextOrder);
     q.bindValue(":created", now);
@@ -212,7 +212,7 @@ bool BookmarkRepository::updateBookmark(const Bookmark& bookmark) {
     q.bindValue(":url", nz(bookmark.url));
     q.bindValue(":icon", nz(bookmark.icon));
     q.bindValue(":username", nz(bookmark.username));
-    q.bindValue(":password", Crypto::encrypt(bookmark.password));
+    q.bindValue(":password", nz(Crypto::encrypt(bookmark.password)));
     q.bindValue(":type", nz(bookmark.type).isEmpty() ? "url" : nz(bookmark.type));
     q.bindValue(":updated", now);
     q.bindValue(":id", bookmark.id);

@@ -11,7 +11,7 @@
 QString Crypto::encrypt(const QString& plain) {
 #ifdef Q_OS_WIN
     if (plain.isEmpty()) {
-        return QString();
+        return QString("");  // 空串（非 null），避免绑定为 SQL NULL 触发 NOT NULL 约束
     }
     const QByteArray utf8 = plain.toUtf8();
     DATA_BLOB in{};
@@ -33,7 +33,7 @@ QString Crypto::encrypt(const QString& plain) {
 QString Crypto::decrypt(const QString& encoded) {
 #ifdef Q_OS_WIN
     if (encoded.isEmpty()) {
-        return QString();
+        return QString("");
     }
     const QByteArray raw = QByteArray::fromBase64(encoded.toLatin1());
     DATA_BLOB in{};
