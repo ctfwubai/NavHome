@@ -4,6 +4,8 @@ NavHome-build/
 installer/dist/
 installer/icons/
 *.exe
+# 例外：允许提交安装包（每个版本的 NavHome-Setup-*.exe 收录进仓库）
+!installer/NavHome-Setup-*.exe
 *.obj
 *.o
 *.dll
