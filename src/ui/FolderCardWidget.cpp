@@ -181,7 +181,7 @@ void FolderCardWidget::buildUi() {
                            "font-size: 11px; }");
 
         connect(btn, &QToolButton::clicked, this, [this, b] {
-            if (b.type == "app") {
+            if (b.type == "app" || b.type == "file") {
                 emit openAppRequested(b.url);
             } else {
                 emit openRequested(b.url);

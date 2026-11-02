@@ -171,7 +171,7 @@ void BookmarkCardWidget::cancelDrag() {
 void BookmarkCardWidget::mouseReleaseEvent(QMouseEvent* event) {
     // 未发生拖拽（普通点击）时打开网址 / 启动应用
     if (event->button() == Qt::LeftButton && !m_selectionMode) {
-        if (m_bookmark.type == "app") {
+        if (m_bookmark.type == "app" || m_bookmark.type == "file") {
             emit openAppRequested(m_bookmark.url);
         } else {
             emit openRequested(m_bookmark.url);

@@ -154,15 +154,39 @@ bool BrowserLauncher::openApp(const QString& command) {
         return false;
     }
 
+    // FTP / FTPS：交给系统默认处理器（资源管理器或浏览器）
+    if (trimmed.startsWith("ftp://", Qt::CaseInsensitive) ||
+        trimmed.startsWith("ftps://", Qt::CaseInsensitive)) {
+        return QDesktopServices::openUrl(QUrl(trimmed));
+    }
+
+    // 目录（本地文件夹）→ 用资源管理器打开
+    const QFileInfo fi(trimmed);
+    if (fi.exists() && fi.isDir()) {
+        return QDesktopServices::openUrl(QUrl::fromLocalFile(fi.absoluteFilePath()));
+    }
+
+    // UNC / SMB 共享路径（\\10.8.249.35 或 \\server\share）→ 资源管理器打开；
+    // 目标暂不可达 / 需认证时 QFileInfo 判定不了，仍交给系统 Shell 尝试打开
+    if (trimmed.startsWith("\\\\")) {
+        return QDesktopServices::openUrl(QUrl::fromLocalFile(trimmed));
+    }
+
     // 快捷方式（.lnk）：直接交给系统 Shell 打开，保留原始参数/工作目录
     if (trimmed.endsWith(".lnk", Qt::CaseInsensitive)) {
         return QDesktopServices::openUrl(QUrl::fromLocalFile(trimmed));
     }
 
-    // 纯文件路径（无参数，含空格）直接启动，避免 splitCommand 误拆分
+    // 纯文件路径（无参数，含空格）：
+    // 可执行文件 / 批处理作为进程启动，其它文档（图片/文本等）用系统关联程序打开
     if (QFileInfo::exists(trimmed)) {
-        return QProcess::startDetached(trimmed, QStringList(),
-                                       QFileInfo(trimmed).absolutePath());
+        const QString suffix = QFileInfo(trimmed).suffix().toLower();
+        if (suffix == "exe" || suffix == "com" || suffix == "bat" || suffix == "cmd") {
+            return QProcess::startDetached(trimmed, QStringList(),
+                                           QFileInfo(trimmed).absolutePath());
+        }
+        return QDesktopServices::openUrl(
+            QUrl::fromLocalFile(QFileInfo(trimmed).absoluteFilePath()));
     }
 
     const QStringList parts = QProcess::splitCommand(trimmed);

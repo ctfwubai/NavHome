@@ -44,10 +44,12 @@
 #include "app/IconFetcher.h"
 #include "models/BookmarkRepository.h"
 #include "ui/FlowLayout.h"
+#include "ui/GroupListWidget.h"
 #include "ui/BookmarkCardWidget.h"
 #include "ui/FolderCardWidget.h"
 #include "ui/AddBookmarkDialog.h"
 #include "ui/AddAppDialog.h"
+#include "ui/AddFileDialog.h"
 #include "ui/BrowserSetupDialog.h"
 #include "ui/SettingsDialog.h"
 
@@ -67,6 +69,11 @@ bool hasAppFile(const QMimeData* mime) {
         }
     }
     return false;
+}
+
+// 「常用」分组固定在第二位，与顶部的「全部」一样不可拖拽、不可作为拖放目标
+bool isPinnedGroupName(const QString& name) {
+    return name == QStringLiteral("常用");
 }
 } // namespace
 
@@ -170,13 +177,23 @@ void MainWindow::buildUi() {
     groupBtnRow->addStretch();
     leftLayout->addLayout(groupBtnRow);
 
-    m_groupList = new QListWidget(leftPanel);
+    m_groupList = new GroupListWidget(leftPanel);
     m_groupList->setObjectName("groupList");
     m_groupList->setFrameShape(QFrame::NoFrame);
     m_groupList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_groupList->setAcceptDrops(true);           // 接收卡片拖拽（跨分组移动）
-    m_groupList->installEventFilter(this);
     leftLayout->addWidget(m_groupList, 1);
+
+    // 书签卡片拖入分组 → 移动分组；分组内部拖拽排序 → 持久化顺序
+    connect(m_groupList, &GroupListWidget::bookmarkDropped, this,
+            [this](int id, int gid) {
+                cancelDragSort();  // 若源卡片仍处于让位隐藏状态，先恢复
+                if (BookmarkRepository::instance().moveBookmarks({id}, gid)) {
+                    refreshGroups();
+                    refreshBookmarks();
+                }
+            });
+    connect(m_groupList, &GroupListWidget::groupOrderChanged, this,
+            [this] { persistGroupOrder(); });
 
     // 左下角：使用说明入口 + 关于信息（版本号 + 作者，均为纯文字，灰色）
     auto* helpBtn = new QPushButton("❓ 使用说明", leftPanel);
@@ -548,11 +565,17 @@ void MainWindow::refreshGroups() {
 
     auto* allItem = new QListWidgetItem("全部");
     allItem->setData(Qt::UserRole, -1);
+    // 「全部」固定在顶部：禁止拖拽与作为拖放目标
+    allItem->setFlags(allItem->flags() & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
     m_groupList->addItem(allItem);
 
     for (const Group& g : m_groups) {
         auto* item = new QListWidgetItem(g.name);
         item->setData(Qt::UserRole, g.id);
+        // 「常用」固定在第二位：禁止拖拽与作为拖放目标
+        if (isPinnedGroupName(g.name)) {
+            item->setFlags(item->flags() & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled));
+        }
         m_groupList->addItem(item);
     }
 
@@ -568,6 +591,50 @@ void MainWindow::refreshGroups() {
     m_groupList->blockSignals(false);
 
     refreshBookmarks();
+}
+
+void MainWindow::persistGroupOrder() {
+    // 先确保固定项位置：「全部」始终第 0 位、「常用」始终第 1 位，
+    // 其它分组只在其后互相排序（防止拖到固定项上方）
+    auto* list = m_groupList;
+
+    // 「全部」→ 第 0 行
+    int allRow = -1;
+    for (int i = 0; i < list->count(); ++i) {
+        if (list->item(i)->data(Qt::UserRole).toInt() < 0) {
+            allRow = i;
+            break;
+        }
+    }
+    if (allRow > 0) {
+        QListWidgetItem* it = list->takeItem(allRow);
+        list->insertItem(0, it);
+    }
+
+    // 「常用」→ 第 1 行
+    int favRow = -1;
+    for (int i = 1; i < list->count(); ++i) {
+        if (isPinnedGroupName(list->item(i)->text())) {
+            favRow = i;
+            break;
+        }
+    }
+    if (favRow > 1) {
+        QListWidgetItem* it = list->takeItem(favRow);
+        list->insertItem(1, it);
+    }
+
+    // 写回各分组 sort_order（跳过首项「全部」）
+    auto& repo = BookmarkRepository::instance();
+    int order = 1;
+    for (int i = 0; i < list->count(); ++i) {
+        const int gid = list->item(i)->data(Qt::UserRole).toInt();
+        if (gid < 0) {
+            continue;  // 跳过「全部」
+        }
+        repo.updateGroupOrder(gid, order++);
+    }
+    m_groups = repo.groups();
 }
 
 void MainWindow::refreshBookmarks() {
@@ -680,7 +747,8 @@ void MainWindow::onShowHelp() {
     };
     const Section sections[] = {
         {"添加收藏", "点右上角「＋ 添加收藏」输入名称和网址；也可以直接把 .exe / .lnk 文件拖进窗口，自动生成应用卡片。"},
-        {"分组", "左侧点「＋」新增分组；把卡片拖到左侧分组名上即可移动分组。"},
+        {"添加文件/文件夹", "在空白处右键「＋ 添加文件/文件夹」，可添加本地文件、文件夹、网络共享（\\\\server\\share）或 FTP（ftp://…）路径，点击即用资源管理器/默认程序打开。"},
+        {"分组", "左侧点「＋」新增分组；拖动分组可上下排序；把卡片拖到左侧分组名上即可移动分组。"},
         {"排序", "按住卡片拖动，周围的卡片会自动让位，松手即可放到该位置。"},
         {"文件夹", "把一个卡片拖到另一个卡片的中央（出现高亮）松手即合并成文件夹；拖到文件夹上松手则收纳进去。双击标题（或点 ✎）重命名，点 ✕ 解散；从文件夹里拖出单个图标即可移出。"},
         {"多选", "点右上角「☑ 多选」进入批量删除 / 移动。"},
@@ -795,6 +863,19 @@ void MainWindow::onAddApp() {
     refreshBookmarks();
 }
 
+void MainWindow::onAddFile() {
+    AddFileDialog dlg(m_groups, currentGroupId(), this);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    Bookmark b = dlg.result();
+    const int id = BookmarkRepository::instance().addBookmark(b);
+    if (id > 0 && !dlg.hasCustomIcon()) {
+        saveAppIcon(id, b.url);
+    }
+    refreshBookmarks();
+}
+
 void MainWindow::onEditBookmark(int id) {
     Bookmark* b = findBookmark(id);
     if (!b) {
@@ -813,6 +894,18 @@ void MainWindow::onEditBookmark(int id) {
         BookmarkRepository::instance().updateBookmark(updated);
         if (updated.url != oldUrl && !dlg.hasCustomIcon()) {
             saveAppIcon(id, BrowserLauncher::exePathFromCommand(updated.url));
+        }
+    } else if (b->type == "file") {
+        AddFileDialog dlg(m_groups, b->groupId, this);
+        dlg.setBookmark(*b);
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+        Bookmark updated = dlg.result();
+        updated.id = id;
+        BookmarkRepository::instance().updateBookmark(updated);
+        if (updated.url != oldUrl && !dlg.hasCustomIcon()) {
+            saveAppIcon(id, updated.url);
         }
     } else {
         AddBookmarkDialog dlg(m_groups, b->groupId, this);
@@ -1096,37 +1189,12 @@ void MainWindow::onOpenUrl(const QString& url) {
 
 void MainWindow::onOpenApp(const QString& command) {
     if (!BrowserLauncher::openApp(command)) {
-        QMessageBox::warning(this, "提示", "无法启动应用，请检查路径是否正确。");
+        QMessageBox::warning(this, "提示", "无法打开，请检查路径或网络是否正确。");
     }
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
-    if (obj == m_groupList) {
-        if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
-            auto* e = static_cast<QDragMoveEvent*>(event);
-            if (e->mimeData()->hasFormat(kBookmarkMime)) {
-                e->acceptProposedAction();
-                return true;
-            }
-        } else if (event->type() == QEvent::Drop) {
-            auto* e = static_cast<QDropEvent*>(event);
-            const int id = e->mimeData()->data(kBookmarkMime).toInt();
-            QListWidgetItem* item = m_groupList->itemAt(e->position().toPoint());
-            if (item) {
-                int gid = item->data(Qt::UserRole).toInt();
-                if (gid < 0) {
-                    gid = 0;  // 拖到「全部」→ 移到“未分组”
-                }
-                cancelDragSort();  // 若源卡片仍处于让位隐藏状态，先恢复
-                if (BookmarkRepository::instance().moveBookmarks({id}, gid)) {
-                    refreshGroups();
-                    refreshBookmarks();
-                }
-                e->acceptProposedAction();
-                return true;
-            }
-        }
-    } else if (obj == m_gridContainer) {
+    if (obj == m_gridContainer) {
         if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             auto* e = static_cast<QDragMoveEvent*>(event);
             const bool bookmark = e->mimeData()->hasFormat(kBookmarkMime);
@@ -1334,8 +1402,10 @@ void MainWindow::onGridContextMenu(const QPoint& pos) {
     QMenu menu(this);
     QAction* addAction = menu.addAction("＋ 添加收藏");
     QAction* addAppAction = menu.addAction("＋ 添加应用");
+    QAction* addFileAction = menu.addAction("＋ 添加文件/文件夹");
     connect(addAction, &QAction::triggered, this, &MainWindow::onAddBookmark);
     connect(addAppAction, &QAction::triggered, this, &MainWindow::onAddApp);
+    connect(addFileAction, &QAction::triggered, this, &MainWindow::onAddFile);
     menu.exec((w ? w : m_gridContainer)->mapToGlobal(pos));
 }
 

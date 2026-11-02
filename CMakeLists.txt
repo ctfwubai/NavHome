@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # 导航之家（NavHome）网页管家
 # 本地单机 Windows 桌面应用，技术栈 C++17 + Qt6 Widgets + SQLite
 project(NavHome
-    VERSION 2.2.4
+    VERSION 2.3.0
     DESCRIPTION "导航之家（NavHome）网页管家"
     LANGUAGES CXX)
 

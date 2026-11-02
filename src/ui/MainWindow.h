@@ -9,6 +9,7 @@
 #include "models/Bookmark.h"
 
 class QListWidget;
+class GroupListWidget;
 class QLineEdit;
 class QMimeData;
 class QScrollArea;
@@ -38,6 +39,7 @@ private slots:
     void onDeleteGroup();
     void onAddBookmark();
     void onAddApp();
+    void onAddFile();
     void onEditBookmark(int id);
     void onDeleteBookmark(int id);
     void onDeleteFolder(int folderId);
@@ -75,6 +77,8 @@ private:
     Bookmark* findBookmark(int id);
     void updateEmptyHint();
     void reorderBookmark(int id, int k);
+    // 将分组列表当前顺序写回数据库（分组拖拽排序后调用）
+    void persistGroupOrder();
     // 由程序路径/命令行创建应用卡片并提取图标（拖入 .exe/.lnk 与手动添加共用）
     void addAppFromCommand(const QString& command, const QString& name = QString());
     // 提取 exe 图标并保存为本地 PNG，写回 icon 字段
@@ -102,7 +106,7 @@ private:
     QList<Group> m_groups;
     QList<Bookmark> m_bookmarks;   // 当前视图展示的收藏
 
-    QListWidget* m_groupList = nullptr;
+    GroupListWidget* m_groupList = nullptr;
     QLineEdit* m_searchEdit = nullptr;
     QLabel* m_emptyHint = nullptr;
     QWidget* m_centralWidget = nullptr;
