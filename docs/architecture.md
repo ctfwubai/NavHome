@@ -52,12 +52,12 @@ flowchart TB
 
 ## 二、分层职责
 
-| 层次 | 目录 | 职责 | 关键类 |
-|------|------|------|--------|
-| 表现层 | `src/ui/` | 界面展示与交互，不含业务规则 | `MainWindow`、`BookmarkCardWidget`、`FlowLayout`、各类对话框 |
-| 应用服务层 | `src/app/` | 可复用的业务能力，供 UI 调用 | `AppConfig`、`BrowserLauncher`、`BackupManager`、`IconFetcher` 等 |
-| 数据访问层 | `src/models/` | 数据结构定义 + SQLite 读写封装 | `BookmarkRepository`、`Group`、`Bookmark` |
-| 存储层 | 数据目录 | 持久化存储 | SQLite 数据库、`config.ini`、JSON 备份、图标文件 |
+| 层次       | 目录          | 职责                           | 关键类                                                       |
+| ---------- | ------------- | ------------------------------ | ------------------------------------------------------------ |
+| 表现层     | `src/ui/`     | 界面展示与交互，不含业务规则   | `MainWindow`、`BookmarkCardWidget`、`FlowLayout`、各类对话框 |
+| 应用服务层 | `src/app/`    | 可复用的业务能力，供 UI 调用   | `AppConfig`、`BrowserLauncher`、`BackupManager`、`IconFetcher` 等 |
+| 数据访问层 | `src/models/` | 数据结构定义 + SQLite 读写封装 | `BookmarkRepository`、`Group`、`Bookmark`                    |
+| 存储层     | 数据目录      | 持久化存储                     | SQLite 数据库、`config.ini`、JSON 备份、图标文件             |
 
 ### 依赖规则
 
@@ -108,13 +108,13 @@ flowchart LR
 
 ## 五、关键技术选型
 
-| 项目 | 选型 | 说明 |
-|------|------|------|
-| 语言 / 框架 | C++17 + Qt 6（Widgets / Sql / Network） | 跨平台桌面 UI |
-| 数据库 | SQLite（Qt Sql 模块） | 本地单文件，无需服务端 |
-| 配置 | `config.ini`（INI 格式） | 可手工编辑 |
-| 构建 | CMake + Ninja（MSYS2 mingw64） | 产物为单 `NavHome.exe` |
-| 打包 | Inno Setup 6 | 单文件安装包，默认安装到 D 盘，所有用户可用 |
+| 项目        | 选型                                    | 说明                                        |
+| ----------- | --------------------------------------- | ------------------------------------------- |
+| 语言 / 框架 | C++17 + Qt 6（Widgets / Sql / Network） | 跨平台桌面 UI                               |
+| 数据库      | SQLite（Qt Sql 模块）                   | 本地单文件，无需服务端                      |
+| 配置        | `config.ini`（INI 格式）                | 可手工编辑                                  |
+| 构建        | CMake + Ninja（MSYS2 mingw64）          | 产物为单 `NavHome.exe`                      |
+| 打包        | Inno Setup 6                            | 单文件安装包，默认安装到 D 盘，所有用户可用 |
 
 ## 六、相关文档
 
