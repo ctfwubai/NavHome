@@ -17,6 +17,14 @@
 - 🎨 **界面主题**：浅色 / 深色主题切换，支持自定义背景图片
 - 📦 **单文件安装**：Inno Setup 打包为独立 .exe 安装程序，默认安装到 D 盘，所有用户（含 AD 域）可用
 
+<img width="1751" height="1002" alt="9168b509ac1fd352234872f94fe8ff90" src="https://github.com/user-attachments/assets/2f0c0902-8192-4d64-899a-82183ee8b7b0" />
+<img width="1752" height="996" alt="9e1e562a6f68051cc4710168b68cc0e7" src="https://github.com/user-attachments/assets/9db1c993-c398-4870-a707-035eaa715144" />
+<img width="467" height="703" alt="d6f91b0cfeb6170495476891e3e29428" src="https://github.com/user-attachments/assets/bd1a2f82-9a79-4d02-bb85-af73e8e0db52" />
+
+
+
+
+
 ## 技术栈
 
 | 层次 | 选型 |
