@@ -18,7 +18,7 @@ flowchart TD
     Guide --> SaveCfg[保存选择并标记已配置]
     SaveCfg --> Main
     CheckFirst -->|否| Main[进入主界面]
-    Main --> End([等待用户操作])
+    Main --> Done([等待用户操作])
 ```
 
 ## 二、收藏管理流程
@@ -30,14 +30,14 @@ flowchart TD
     A[点击 添加收藏 / 编辑] --> B[打开 AddBookmarkDialog]
     B --> C[填写名称、网址、选择分组]
     C --> D{保存?}
-    D -->|取消| End([结束])
+    D -->|取消| Done([结束])
     D -->|确定| E[写入 SQLite]
     E --> F{URL 是否变化?}
     F -->|是| G[IconFetcher 异步抓取 favicon]
     F -->|否| H[刷新卡片列表]
     G -->|成功| I[回写图标路径]
     I --> H
-    H --> End
+    H --> Done
 ```
 
 ### 删除 / 批量操作

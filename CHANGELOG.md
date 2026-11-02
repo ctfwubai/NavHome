@@ -12,6 +12,7 @@
 - 修复文件夹路径（如 `F:\卡游`）无法打开、提示「无法启动应用」的问题：目录现在用资源管理器打开
 - 修复 SMB/UNC 共享路径（如 `\\10.8.249.35`）无法打开的问题：现在交给系统 Shell 打开
 - 修复普通文档/图片等非可执行文件无法打开的问题：现在用系统关联程序打开
+- 修复 `docs/architecture.md`、`docs/business-flow.md` 中 Mermaid 流程图语法错误，GitHub 上渲染报「Syntax error in text」
 
 ### 优化
 - 支持 FTP / FTPS 协议路径（`ftp://…`），交给系统默认处理器打开

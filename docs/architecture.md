@@ -98,7 +98,7 @@ SQLite 连接的单例封装，负责打开（不存在则创建）数据库、�
 flowchart LR
     A[启动] --> B{程序目录可写?}
     B -->|是| C[便携模式：数据存于 exe 目录]
-    B -->|否| D[安装模式：数据存于 %APPDATA%\NavHome]
+    B -->|否| D["安装模式：数据存于 %APPDATA%\\NavHome"]
     C --> E[config.ini + navhome.db + icons/]
     D --> E
 ```
